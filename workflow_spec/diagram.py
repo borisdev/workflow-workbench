@@ -1,0 +1,91 @@
+"""Mermaid straight from the declaration — no `Graph`, no implementations, no engine.
+
+`pydantic_graph.Graph.render()` already emits mermaid, and this does NOT replace it. The
+difference is what each can answer:
+
+    Graph.render()      one BUILT graph. Needs every implementation to exist first.
+    diagram(spec)       the DESIGN, before anything is implemented.
+    diff_diagram(a, b)  what two STRATEGIES have in common and where they differ.
+
+The third has no equivalent in pydantic-graph, and it is the reason this module exists: a built
+`Graph` retains no trace of the strategy that produced it, so two rendered graphs of one design are
+byte-identical mermaid — a diff of them is empty by construction, on every pair, forever. The
+variation lives in the bindings, which only the declaration holds.
+"""
+from __future__ import annotations
+
+from typing import Any
+
+from workflow_spec.spec import EdgeSpec, NodeSpec, StrategySpec, _End, _Start, is_sentinel
+
+__all__ = ["diagram", "diff_diagram", "impl_name"]
+
+
+def impl_name(impl: Any) -> str:
+    return getattr(impl, "__qualname__", None) or getattr(impl, "__name__", None) or repr(impl)
+
+
+def _node_id(ep: Any) -> str:
+    if isinstance(ep, _Start):
+        return "START"
+    if isinstance(ep, _End):
+        return "END"
+    return ep.name.replace(" ", "_")
+
+
+def diagram(nodes: tuple[NodeSpec, ...], edges: tuple[EdgeSpec, ...], *,
+            title: str = "", strategy: StrategySpec | None = None) -> str:
+    """Mermaid `flowchart TD` for a design, optionally annotated with one strategy's bindings.
+
+    ⚠️ `flowchart`, where `pydantic_graph.Graph.render()` emits `stateDiagram-v2` (verified). The
+    difference is deliberate and worth stating: a state diagram draws states and transitions; this
+    draws a dataflow, and the edge LABELS — which variable crosses which wire — are the thing a
+    reader needs and the thing a state diagram has nowhere to put.
+    """
+    out = [f"%% {title}" if title else "%% workflow-spec", "flowchart TD"]
+    out.append("  START([START])")
+    for n in nodes:
+        label = n.name
+        if strategy is not None and n in strategy.bindings:
+            label = f"{n.name}<br/><i>{impl_name(strategy[n])}</i>"
+        out.append(f"  {_node_id(n)}[\"{label}\"]")
+    out.append("  END([END])")
+    for e in edges:
+        lbl = e.label or (e.variable.name if e.variable else "")
+        arrow = f"-- {lbl} -->" if lbl else "-->"
+        out.append(f"  {_node_id(e.source)} {arrow} {_node_id(e.target)}")
+    return "\n".join(out)
+
+
+def diff_diagram(nodes: tuple[NodeSpec, ...], edges: tuple[EdgeSpec, ...],
+                 a: StrategySpec, b: StrategySpec, *, title: str = "") -> str:
+    """One diagram of the shared design, with the nodes that DIFFER between two strategies
+    highlighted and both implementations named.
+
+    This is the picture a battle needs and that neither library can draw:
+
+      · `Graph.render()` draws one built graph, and both arms of one design render identically
+      · nothing in pydantic-evals draws anything structural at all
+
+    Shared nodes are drawn plain; varying nodes get both implementation names and a `varies` class.
+    """
+    varies = {n for n in nodes
+              if n in a.bindings and n in b.bindings and a[n] is not b[n]}
+    out = [f"%% {title or 'strategy diff'}: {a.name} vs {b.name}", "flowchart TD"]
+    out.append("  START([START])")
+    for n in nodes:
+        if n in varies:
+            out.append(f"  {_node_id(n)}[\"{n.name}<br/>{a.name}: <i>{impl_name(a[n])}</i>"
+                       f"<br/>{b.name}: <i>{impl_name(b[n])}</i>\"]:::varies")
+        else:
+            shared = impl_name(a[n]) if n in a.bindings else ""
+            sub = f"<br/><i>{shared}</i>" if shared else ""
+            out.append(f"  {_node_id(n)}[\"{n.name}{sub}\"]:::shared")
+    out.append("  END([END])")
+    for e in edges:
+        lbl = e.label or (e.variable.name if e.variable else "")
+        arrow = f"-- {lbl} -->" if lbl else "-->"
+        out.append(f"  {_node_id(e.source)} {arrow} {_node_id(e.target)}")
+    out.append("  classDef varies fill:#fde68a,stroke:#b45309,stroke-width:3px;")
+    out.append("  classDef shared fill:#f1f5f9,stroke:#94a3b8;")
+    return "\n".join(out)
