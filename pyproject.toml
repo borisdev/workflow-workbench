@@ -10,9 +10,11 @@ dependencies = [
 
 [project.optional-dependencies]
 evals = ["pydantic-evals>=2.0"]
+# The browser dev tool. Optional: the library never imports it.
+dev-server = ["fastapi>=0.110", "uvicorn>=0.27"]
 
 [dependency-groups]
-dev = ["pytest>=8.0", "pydantic-evals>=2.0"]
+dev = ["pytest>=8.0", "pydantic-evals>=2.0", "fastapi>=0.110", "uvicorn>=0.27", "httpx>=0.27"]
 
 [build-system]
 requires = ["hatchling"]
