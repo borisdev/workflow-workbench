@@ -147,3 +147,30 @@ def test_a_hostile_name_cannot_execute():
     with Page(payload) as p:
         assert p.page.evaluate("window.__pwned === undefined")
         assert p.errors == []
+
+
+def test_no_column_is_stranded_off_screen_on_a_phone():
+    """⛔ A column you cannot see and are not told to scroll for is invisible, not scrolled.
+
+    Measured before the fix: the latency table was 439px inside a 327px container, so the only
+    column carrying numbers was off the right edge with no affordance. `checks.md` — it rendered
+    perfectly, invisibly.
+    """
+    payload = {**BASE, "layers": [
+        {**BASE["layers"][0], "name": "evidence_corrected (verify ON, enrich ON)"},
+        BASE["layers"][1]]}
+    with Page(payload) as p:
+        w = p.page.eval_on_selector("#perf table", "e => e.scrollWidth")
+        c = p.page.eval_on_selector("#perf", "e => e.clientWidth")
+        assert w <= c + 4, f"perf table {w}px overflows its {c}px container"
+
+
+def test_a_wide_bindings_table_says_it_is_scrollable():
+    """The bindings table legitimately grows with the strategy count, so it scrolls — but it
+    must SAY so rather than silently truncate."""
+    many = [{"name": f"strategy_number_{i}",
+             "bindings": {"propose": {"impl": f"impl_{i}"}, "cite": {"impl": "skip",
+                                                                     "skipped": True}}}
+            for i in range(8)]
+    with Page({**BASE, "layers": many}) as p:
+        assert p.page.locator("#tblhint.on").count() == 1, "wide table gave no scroll affordance"

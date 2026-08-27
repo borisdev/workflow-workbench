@@ -127,6 +127,16 @@ _PAGE = """<!DOCTYPE html>
  th,td{padding:.42rem .5rem;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap}
  th{color:var(--dim);font-weight:600;font-size:.7rem;text-transform:uppercase}
  .scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+ /* ⚠️ A column that is off-screen with no affordance is invisible, not merely scrolled —
+    the same class of defect as rendering onto a screen the reader is not on. On a narrow
+    viewport the strategy name wraps instead of forcing the metrics off the right edge. */
+ @media(max-width:620px){
+   #perf td:first-child,#perf th:first-child{white-space:normal;word-break:break-word;
+     max-width:9.5rem}
+   #tbl td:first-child,#tbl th:first-child{position:sticky;left:0;background:var(--card)}
+ }
+ .hint{color:var(--dim);font-size:.7rem;margin-top:.3rem;display:none}
+ .hint.on{display:block}
  .varies{color:var(--vary);font-weight:600}
  .skip{color:var(--skip);font-style:italic}
  .mono{font-family:ui-monospace,Menlo,monospace;font-size:.78rem}
@@ -274,7 +284,12 @@ function draw(){
     t+='</tr>';
   });
   E('tbl').innerHTML = t + '</table><div class="sub">— = explicitly skipped by that strategy. '
-    + 'UNBOUND = nobody wired it, which check_bindings refuses.</div>';
+    + 'UNBOUND = nobody wired it, which check_bindings refuses.</div>'
+    + '<div class="hint" id="tblhint">← swipe the table sideways for the other strategies</div>';
+  requestAnimationFrame(()=>{
+    const box=E('tbl'), tb=box.querySelector('table');
+    if(tb && tb.scrollWidth > box.clientWidth+4) E('tblhint').classList.add('on');
+  });
 
   /* latency + scores, with "not reported" rather than a zero */
   const metrics = [...new Set(layers.flatMap(l=>Object.keys(l.scores||{})))];
