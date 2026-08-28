@@ -39,3 +39,18 @@
 .ws-findings li { font-size: .78rem; margin-bottom: .3rem; }
 .ws-notchecked { color: #fbbf24; }
 .ws-bad { color: #f87171; }
+
+/* ⛔ PHONE FIXES, both measured on the real report at 390px.
+   1. The MiniMap floated over the canvas and covered a whole stage — a control that hides the
+      content it navigates is worse than no control. It earns its keep on a wide screen only.
+   2. The latency table overflowed, stranding the only column with numbers off the right edge —
+      the same defect already fixed in the plain renderer, which this panel did not inherit. */
+@media (max-width: 700px) {
+  .ws-mini { display: none !important; }
+}
+
+@media (max-width: 620px) {
+  .ws-panel td:first-child, .ws-panel th:first-child {
+    white-space: normal; word-break: break-word; max-width: 9.5rem;
+  }
+}

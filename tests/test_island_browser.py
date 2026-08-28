@@ -242,3 +242,28 @@ def test_plain_fallback_still_works_and_needs_no_bundle(report_url):
         # No bundle was involved.
         assert pg.locator(".react-flow").count() == 0
         b.close()
+
+
+def test_the_minimap_does_not_cover_the_graph_on_a_phone(report_url):
+    """⛔ Measured: the MiniMap floated over the canvas and hid an entire stage. A control that
+    obscures the content it navigates is worse than not having it."""
+    with Island(report_url) as i:
+        assert i.page.locator(".ws-mini").count() == 0 or not i.page.locator(
+            ".ws-mini").is_visible(), "minimap is visible at 390px and overlaps the graph"
+
+
+def test_no_panel_column_is_stranded_off_screen_on_a_phone(report_url):
+    """The same overflow already fixed in the plain renderer — the island panel did not inherit
+    it, so it had to be fixed and tested again here."""
+    with Island(report_url) as i:
+        # ⚠️ Find the metrics table BY ITS HEADING, not by nth-of-type — a section added above it
+        # would silently move the index and the assertion would start grading a different table.
+        perf_overflow = i.page.evaluate("""() => {
+            const s = [...document.querySelectorAll('.ws-panel section')]
+              .find(x => x.querySelector('h3')?.textContent?.toLowerCase().includes('latency'));
+            if (!s) return null;
+            const box = s.querySelector('.ws-scroll'), t = box.querySelector('table');
+            return t.scrollWidth - box.clientWidth;
+        }""")
+        assert perf_overflow is not None, "no latency section found — the selector is wrong"
+        assert perf_overflow <= 4, f"latency table overflows by {perf_overflow}px on a phone"
