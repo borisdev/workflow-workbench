@@ -18,7 +18,7 @@ pytest.importorskip("fastapi")
 import uvicorn
 from playwright.sync_api import sync_playwright
 
-from workflow_spec.serve import build_app
+from graph_strategies.serve import build_app
 
 BOOT_TIMEOUT_MS = int(__import__("os").getenv("WS_BOOT_TIMEOUT_MS", "15000"))
 """Lowered in the falsification run, where every test is EXPECTED to time out."""
@@ -62,7 +62,7 @@ def _free_port() -> int:
 @pytest.fixture(scope="module")
 def server(tmp_path_factory):
     import os
-    os.environ["WORKFLOW_SPEC_STORE"] = str(tmp_path_factory.mktemp("reports"))
+    os.environ["GRAPH_STRATEGIES_STORE"] = str(tmp_path_factory.mktemp("reports"))
     port = _free_port()
     app = build_app(token="", require_token=False)
     cfg = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning")

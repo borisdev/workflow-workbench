@@ -15,7 +15,7 @@ import pytest
 pytest.importorskip("playwright.sync_api")
 from playwright.sync_api import sync_playwright
 
-from workflow_spec.report import render_page
+from graph_strategies.report import render_page
 
 BASE = {
     "name": "demo",

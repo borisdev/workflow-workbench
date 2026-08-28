@@ -36,7 +36,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from workflow_spec.payload import WorkflowReport
+from graph_strategies.payload import WorkflowReport
 
 __all__ = ["render_page", "validate_payload", "PayloadError"]
 
@@ -48,7 +48,7 @@ class PayloadError(ValueError):
 def validate_payload(payload: Any) -> dict[str, Any]:
     """Parse the payload against the shared schema, or raise with the reason.
 
-    ⚠️ ONE definition, in `workflow_spec.payload`, used by the producer and by this viewer. The
+    ⚠️ ONE definition, in `graph_strategies.payload`, used by the producer and by this viewer. The
     hand-rolled dict checks this replaced were a second description of the same shape, which is
     the drift `.claude/rules/spec-as-code.md` exists to prevent.
 

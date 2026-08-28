@@ -1,7 +1,10 @@
-# workflow-spec
+# pydantic-graph-strategies
 
-One fixed graph design, many competing implementations — checked, diagrammed, and battled on
-[Pydantic Evals](https://ai.pydantic.dev/evals/).
+Define one Pydantic graph design, bind competing strategies, then check, diagram, and evaluate
+them fairly.
+
+> An independent third-party library built on [Pydantic Graph](https://ai.pydantic.dev/graph/).
+> Not affiliated with or endorsed by Pydantic.
 
 ```python
 class Counter(GraphSpec):
@@ -25,41 +28,59 @@ eval_battle(Counter(), modest, aggressive, dataset)
 - you have **one** graph with one implementation per node → use **Pydantic Graph** directly
 - you only need to evaluate **one** callable → use **Pydantic Evals** directly
 
-Use `workflow-spec` only when several strategies must satisfy the same graph structure and typed
-contracts before being compared.
+Use this only when several strategies must satisfy the same graph structure and typed contracts
+before being compared.
 
 ## What it owns, and what it does not
 
-`workflow-spec` owns the design (`GraphSpec`, `NodeSpec`, `EdgeSpec`, `VariableSpec`,
-`StrategySpec`), the checks, the strategy diagrams, and `eval_battle`.
+This library owns the design — `GraphSpec`, `NodeSpec`, `EdgeSpec`, `VariableSpec`,
+`StrategySpec` — plus the checks, the strategy diagrams, and `eval_battle`.
 
-Pydantic Evals owns `Case`, `Dataset`, `Evaluator`, `LLMJudge` and `EvaluationReport` — they are
+Pydantic Evals owns `Case`, `Dataset`, `Evaluator`, `LLMJudge` and `EvaluationReport`; they are
 imported and used directly. There is no `EvalCase`, no `EvalSuite`, no `Grader`, no `EvalReport`,
 no `EvalHarness`.
 
+It is a **strategy layer over Pydantic Graph**, not a new general workflow framework.
+
 ## The three things it adds
 
-**1. Node identity belongs to the DESIGN, not the implementation.** Without an explicit
-`node_id`, pydantic-graph names a node after the bound function — so two arms of one design get
-disjoint node sets and a comparison has nothing to align on. Measured both ways in
-`docs/probe_api.py`.
+**1. Node identity belongs to the DESIGN, not the implementation.** Without an explicit `node_id`,
+pydantic-graph names a node after the bound function — so two arms of one design get disjoint node
+sets and a comparison has nothing to align on. Measured both ways in `docs/probe_api.py`.
 
 **2. A per-edge variable check.** A node with two outputs of the same type can have its two
 outgoing edges swapped. Every set matches — produced == consumed — and the wiring is wrong. Only a
-per-edge check sees it (`tests/…::test_check_variables_catches_a_swap_that_set_comparison_cannot`
-proves the set comparison agrees with the bug).
+per-edge check sees it; the test proves the set comparison agrees with the bug.
 
 **3. A diagram of what VARIES between two strategies.** Two arms of one design render
 byte-identical mermaid from `Graph.render()`, because a built graph retains no trace of the
 strategy that produced it. `diff_diagram()` reads the declaration instead.
 
+## Viewing a report
+
+`graph_strategies.serve` is a stateless viewer: POST a report, GET a page. It renders with React
+Flow, or `?plain=1` for a self-contained page with no bundle at all.
+
+```bash
+export GRAPH_STRATEGIES_TOKEN=$(python3 -c 'import secrets;print(secrets.token_urlsafe(24))')
+python3 -m graph_strategies.cli serve --host 0.0.0.0 --port 8800
+```
+
+⚠️ The renderer depends on the **schema** (`graph_strategies/payload.py`, which imports only
+pydantic) and never on the **engine**. Hosting the viewer does not require pydantic-graph, so a
+report can be displayed somewhere that cannot build graphs.
+
 ## Verify it rather than believe it
 
 ```bash
 uv run pytest -q
-uv run python3 docs/probe_api.py                  # every claim above, run against the real library
+uv run python3 docs/probe_api.py                  # every claim above, against the real library
 uv run python3 docs/probe_parallel_and_evals.py
 uv run python3 examples/counter.py
 uv run python3 examples/parallel.py
 uv run python3 examples/local/extraction.py
 ```
+
+The browser tests run the page in Chromium at a phone viewport. They are non-vacuous by
+construction: one unbalanced brace in the renderer turns 12 of 13 red, and a corrupt island bundle
+turns 13 of 14 red while the `?plain=1` fallback keeps passing.

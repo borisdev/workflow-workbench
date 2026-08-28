@@ -1,9 +1,9 @@
 {
-  "name": "workflow-spec-island",
+  "name": "graph-strategies-island",
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "React Flow island for a workflow report. Built output is committed into workflow_spec/static; the Python package has no node step.",
+  "description": "React Flow island for a workflow report. Built output is committed into graph_strategies/static; the Python package has no node step.",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",

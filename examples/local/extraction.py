@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from workflow_spec import (
+from graph_strategies import (
     END,
     START,
     EdgeSpec,

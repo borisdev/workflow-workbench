@@ -6,8 +6,8 @@ import pytest
 from pydantic_evals import Case, Dataset
 from pydantic_evals.evaluators import Evaluator, EvaluatorContext
 
-from workflow_spec import END, START, EdgeSpec, GraphSpec, NodeSpec, StrategySpec, VariableSpec
-from workflow_spec.evals import BattleResult, eval_battle, pairwise_battle
+from graph_strategies import END, START, EdgeSpec, GraphSpec, NodeSpec, StrategySpec, VariableSpec
+from graph_strategies.evals import BattleResult, eval_battle, pairwise_battle
 
 text = VariableSpec("text", str)
 work = NodeSpec("work", inputs=(text,), outputs=(text,))
@@ -98,7 +98,7 @@ def test_per_case_spread_does_not_cancel_where_averages_do():
 
 
 def test_battle_refuses_a_strategy_that_does_not_satisfy_the_spec():
-    from workflow_spec import SpecError
+    from graph_strategies import SpecError
     with pytest.raises(SpecError):
         eval_battle(Job(), loud, StrategySpec("empty", {}), dataset())
 

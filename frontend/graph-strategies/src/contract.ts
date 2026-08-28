@@ -1,5 +1,5 @@
 /**
- * The wire contract — the TypeScript half of `workflow_spec/payload.py`.
+ * The wire contract — the TypeScript half of `graph_strategies/payload.py`.
  *
  * ⚠️ HAND-KEPT IN STEP with the Pydantic model. There is no codegen, so `contract.test`-style
  * drift is possible; the guard is `tests/test_contract_parity.py`, which parses THIS file and

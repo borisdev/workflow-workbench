@@ -12,9 +12,9 @@ from typing import Any, ClassVar
 
 from pydantic_graph import GraphBuilder
 
-from workflow_spec import checks
-from workflow_spec.diagram import diagram as _diagram, diff_diagram as _diff_diagram
-from workflow_spec.spec import (
+from graph_strategies import checks
+from graph_strategies.diagram import diagram as _diagram, diff_diagram as _diff_diagram
+from graph_strategies.spec import (
     EdgeSpec,
     NodeSpec,
     SpecError,
@@ -163,7 +163,7 @@ class GraphSpec:
         from the same `nodes`/`edges`, so their structures are identical BY CONSTRUCTION — a
         structural diff reports "nothing varies" on every pair. The experiment is in the bindings.
         """
-        from workflow_spec.diagram import impl_name
+        from graph_strategies.diagram import impl_name
         return {n.name: (impl_name(a[n]), impl_name(b[n]))
                 for n in self.nodes
                 if n in a.bindings and n in b.bindings and a[n] is not b[n]}
