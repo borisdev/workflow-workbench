@@ -110,6 +110,10 @@ class WorkflowReport(BaseModel):
     noise_floor: dict[str, float] | None = None
     """The bar a delta must clear to mean anything. None means no replicate ran — which the viewer
     must SAY, because without it no number on the page is known to be a result."""
+    design_findings: list[str] = Field(default_factory=list)
+    """What is wrong with the DESIGN itself, independent of any strategy — including any
+    `NOT CHECKED` line naming a check that was skipped and why. A design with findings must not
+    render as a clean one."""
     mermaid: str = ""
     meta: dict[str, Any] = Field(default_factory=dict)
 

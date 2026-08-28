@@ -63,6 +63,8 @@ export interface WorkflowReport {
   layers?: Layer[];
   /** The bar a delta must clear. null = no replicate ran, so no number here is a result. */
   noise_floor?: Record<string, number> | null;
+  /** Findings about the DESIGN, independent of any strategy. Includes NOT CHECKED lines. */
+  design_findings?: string[];
   mermaid?: string;
   meta?: Record<string, unknown>;
 }

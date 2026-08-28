@@ -34,3 +34,8 @@
 .ws-panel summary { cursor: pointer; color: #93a0c0; font-size: .8rem; }
 .ws-loading, .ws-error { padding: 2rem; color: #93a0c0; font: 14px system-ui; }
 .ws-error { color: #f87171; }
+
+.ws-findings ul { margin: 0; padding-left: 1.1rem; }
+.ws-findings li { font-size: .78rem; margin-bottom: .3rem; }
+.ws-notchecked { color: #fbbf24; }
+.ws-bad { color: #f87171; }

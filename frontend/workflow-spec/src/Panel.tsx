@@ -30,8 +30,24 @@ export function Panel({
   const selB = layers.find((l) => l.name === b);
   const codeFor = picked ? [selA, selB].filter(Boolean) : [];
 
+  const design = report.design_findings ?? [];
+
   return (
     <div className="ws-panel">
+      {/* ⚠️ A design with findings must never render as a clean one — including a NOT CHECKED
+          line, which names a check that did NOT run and is not a pass. */}
+      {design.length > 0 && (
+        <section className="ws-findings">
+          <h3>Design findings</h3>
+          <ul>
+            {design.map((f) => (
+              <li key={f} className={f.startsWith("NOT CHECKED") ? "ws-notchecked" : "ws-bad"}>
+                {f}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
       <section>
         <h3>Bindings</h3>
         <div className="ws-scroll">
