@@ -50,7 +50,11 @@
 }
 
 @media (max-width: 620px) {
-  .ws-panel td:first-child, .ws-panel th:first-child {
+  /* ⛔ SCOPED TO THE METRICS TABLE. Applied to `.ws-panel` as a whole it also hit the BINDINGS
+     table, whose first column is a short stage id — `word-break` then broke "propose" into one
+     letter per line, which is far worse than the overflow it was fixing. The bindings table is
+     MEANT to scroll: it grows one column per strategy and no wrapping can save it. */
+  .ws-metrics td:first-child, .ws-metrics th:first-child {
     white-space: normal; word-break: break-word; max-width: 9.5rem;
   }
 }

@@ -88,7 +88,7 @@ export function Panel({
         </p>
       </section>
 
-      <section>
+      <section className="ws-metrics">
         <h3>Latency &amp; scores</h3>
         <div className="ws-scroll">
           <table>

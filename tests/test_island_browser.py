@@ -267,3 +267,18 @@ def test_no_panel_column_is_stranded_off_screen_on_a_phone(report_url):
         }""")
         assert perf_overflow is not None, "no latency section found — the selector is wrong"
         assert perf_overflow <= 4, f"latency table overflows by {perf_overflow}px on a phone"
+
+
+def test_the_bindings_table_is_not_wrapped_into_one_letter_per_line(report_url):
+    """⛔ The fix for the metrics overflow leaked onto the BINDINGS table and broke "propose" into
+    a vertical column of single letters. A first column narrower than its own text is not a
+    layout, and the overflow test could not see it — it only measured the other table."""
+    with Island(report_url) as i:
+        w = i.page.evaluate("""() => {
+            const s = [...document.querySelectorAll('.ws-panel section')]
+              .find(x => x.querySelector('h3')?.textContent?.toLowerCase().includes('binding'));
+            const cell = s.querySelector('tbody td');
+            return { w: cell.getBoundingClientRect().width, text: cell.textContent };
+        }""")
+        # "propose" at ~11px monospace needs ~55px. One letter per line would be under 20.
+        assert w["w"] > 45, f"bindings first column is {w['w']}px for {w['text']!r} — wrapped"
