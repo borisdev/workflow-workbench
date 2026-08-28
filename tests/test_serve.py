@@ -33,13 +33,55 @@ def client(token="t0k"):
 
 # ── the renderer is pure and domain-free ────────────────────────────────────────────────────
 
-def test_report_module_imports_nothing_from_the_library():
-    """The whole point of the split: the viewer can be hosted where the code is not."""
+def test_the_viewer_depends_on_the_SCHEMA_but_never_on_the_ENGINE():
+    """⚠️ The rule is narrower than "the viewer imports nothing of ours", which is too severe.
+
+    Sharing the SCHEMA is right — one definition means a producer cannot emit a shape the viewer
+    rejects. What must not be shared is the ENGINE: if the renderer imported `GraphSpec`, hosting
+    the viewer would require installing pydantic-graph, and a report could only be displayed
+    somewhere that can also build graphs.
+    """
     import pathlib
     src = pathlib.Path(render_page.__code__.co_filename).read_text()
-    assert "from workflow_spec.graph_spec" not in src
-    assert "from workflow_spec.spec" not in src
+    assert "from workflow_spec.payload import" in src        # the schema: required
+    assert "from workflow_spec.graph_spec" not in src        # the engine: forbidden
+    assert "from workflow_spec.spec import" not in src
     assert "import pydantic_graph" not in src
+
+
+def _imported_modules(mod) -> set[str]:
+    """The module's real imports, from the AST — not a grep.
+
+    ⚠️ A text search hits the docstring, which NAMES the modules it must not import in order to
+    explain why. The first version of this test failed on its own prose.
+    """
+    import ast
+    import pathlib
+    tree = ast.parse(pathlib.Path(mod.__file__).read_text())
+    out: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            out |= {a.name for a in node.names}
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            out.add(node.module)
+    return out
+
+
+def test_the_schema_module_itself_pulls_in_no_engine():
+    """It is imported by producers that HAVE pydantic-graph and viewers that do not."""
+    import workflow_spec.payload as mod
+    imports = _imported_modules(mod)
+    assert not any(m.startswith("pydantic_graph") for m in imports), imports
+    assert not any(m.startswith("workflow_spec") for m in imports), imports
+    assert any(m.startswith("pydantic") for m in imports), imports
+
+
+def test_producer_and_viewer_agree_because_there_is_one_definition():
+    """The round trip that makes the shared schema worth having."""
+    from workflow_spec.payload import WorkflowReport
+    report = WorkflowReport.model_validate(GOOD)
+    assert render_page(report.model_dump(mode="json"))
+    assert render_page(report)                                # the model itself is accepted too
 
 
 def test_render_is_pure_and_self_contained():
@@ -65,8 +107,19 @@ def test_bad_payloads_say_why_rather_than_rendering_an_empty_page():
                           "edges": [{"source": "a", "target": "ghost"}]})
     with pytest.raises(PayloadError, match="two nodes share"):
         validate_payload({"nodes": [{"id": "a"}, {"id": "a"}], "edges": []})
+    # A well-formed binding pointing at a node the design does not declare. (An EMPTY binding
+    # fails earlier, on Binding's own rule that a stage with no impl must say unbound=True —
+    # both are correct, and pydantic reports the inner one first.)
     with pytest.raises(PayloadError, match="not a declared node"):
-        validate_payload({**GOOD, "layers": [{"name": "z", "bindings": {"nope": {}}}]})
+        validate_payload({**GOOD, "layers": [
+            {"name": "z", "bindings": {"nope": {"impl": "f"}}}]})
+
+    with pytest.raises(PayloadError, match="skipped and unbound"):
+        validate_payload({**GOOD, "layers": [
+            {"name": "z", "bindings": {"a": {"impl": "f", "skipped": True, "unbound": True}}}]})
+
+    with pytest.raises(PayloadError, match="must set unbound"):
+        validate_payload({**GOOD, "layers": [{"name": "z", "bindings": {"a": {}}}]})
 
 
 # ⚠️ NOT tested by string-matching the HTML. Both branches of every `if` live in the source, so

@@ -36,6 +36,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from workflow_spec.payload import WorkflowReport
+
 __all__ = ["render_page", "validate_payload", "PayloadError"]
 
 
@@ -44,45 +46,29 @@ class PayloadError(ValueError):
 
 
 def validate_payload(payload: Any) -> dict[str, Any]:
-    """Refuse a payload we cannot draw, with a message naming the problem.
+    """Parse the payload against the shared schema, or raise with the reason.
+
+    ⚠️ ONE definition, in `workflow_spec.payload`, used by the producer and by this viewer. The
+    hand-rolled dict checks this replaced were a second description of the same shape, which is
+    the drift `.claude/rules/spec-as-code.md` exists to prevent.
 
     ⚠️ A viewer that renders an empty page on bad input is the worst shape available: it looks
     like a workflow with nothing in it rather than like a mistake.
     """
+    from pydantic import ValidationError
+
+    if isinstance(payload, WorkflowReport):
+        return payload.model_dump(mode="json")
     if not isinstance(payload, dict):
         raise PayloadError(f"payload must be a JSON object, got {type(payload).__name__}")
-    for key in ("nodes", "edges"):
-        if key not in payload:
-            raise PayloadError(f"payload has no {key!r}. Required keys: nodes, edges.")
-        if not isinstance(payload[key], list):
-            raise PayloadError(f"{key!r} must be a list, got {type(payload[key]).__name__}")
-
-    ids = set()
-    for i, n in enumerate(payload["nodes"]):
-        if not isinstance(n, dict) or "id" not in n:
-            raise PayloadError(f"nodes[{i}] has no 'id'")
-        if n["id"] in ids:
-            raise PayloadError(f"two nodes share the id {n['id']!r}")
-        ids.add(n["id"])
-
-    known = ids | {"__start__", "__end__"}
-    for i, e in enumerate(payload["edges"]):
-        if not isinstance(e, dict) or "source" not in e or "target" not in e:
-            raise PayloadError(f"edges[{i}] needs 'source' and 'target'")
-        for side in ("source", "target"):
-            if e[side] not in known:
-                raise PayloadError(
-                    f"edges[{i}].{side} is {e[side]!r}, which is not a declared node id. "
-                    f"Known: {sorted(known)}")
-
-    for i, layer in enumerate(payload.get("layers") or []):
-        if not isinstance(layer, dict) or "name" not in layer:
-            raise PayloadError(f"layers[{i}] has no 'name'")
-        for node_id in (layer.get("bindings") or {}):
-            if node_id not in ids:
-                raise PayloadError(
-                    f"layer {layer['name']!r} binds {node_id!r}, which is not a declared node")
-    return payload
+    try:
+        return WorkflowReport.model_validate(payload).model_dump(mode="json")
+    except ValidationError as exc:
+        bits = []
+        for err in exc.errors():
+            loc = ".".join(str(x) for x in err["loc"]) or "payload"
+            bits.append(f"{loc}: {err['msg']}")
+        raise PayloadError("; ".join(bits)) from exc
 
 
 _PAGE = """<!DOCTYPE html>
