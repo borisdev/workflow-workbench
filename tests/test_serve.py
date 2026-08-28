@@ -8,8 +8,8 @@ import pytest
 pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient
 
-from graph_strategies.report import PayloadError, render_page, validate_payload
-from graph_strategies.serve import build_app
+from workflow_workbench.report import PayloadError, render_page, validate_payload
+from workflow_workbench.serve import build_app
 
 GOOD = {
     "name": "demo",
@@ -43,9 +43,9 @@ def test_the_viewer_depends_on_the_SCHEMA_but_never_on_the_ENGINE():
     """
     import pathlib
     src = pathlib.Path(render_page.__code__.co_filename).read_text()
-    assert "from graph_strategies.payload import" in src        # the schema: required
-    assert "from graph_strategies.graph_spec" not in src        # the engine: forbidden
-    assert "from graph_strategies.spec import" not in src
+    assert "from workflow_workbench.payload import" in src        # the schema: required
+    assert "from workflow_workbench.graph_spec" not in src        # the engine: forbidden
+    assert "from workflow_workbench.spec import" not in src
     assert "import pydantic_graph" not in src
 
 
@@ -69,16 +69,16 @@ def _imported_modules(mod) -> set[str]:
 
 def test_the_schema_module_itself_pulls_in_no_engine():
     """It is imported by producers that HAVE pydantic-graph and viewers that do not."""
-    import graph_strategies.payload as mod
+    import workflow_workbench.payload as mod
     imports = _imported_modules(mod)
     assert not any(m.startswith("pydantic_graph") for m in imports), imports
-    assert not any(m.startswith("graph_strategies") for m in imports), imports
+    assert not any(m.startswith("workflow_workbench") for m in imports), imports
     assert any(m.startswith("pydantic") for m in imports), imports
 
 
 def test_producer_and_viewer_agree_because_there_is_one_definition():
     """The round trip that makes the shared schema worth having."""
-    from graph_strategies.payload import WorkflowReport
+    from workflow_workbench.payload import WorkflowReport
     report = WorkflowReport.model_validate(GOOD)
     assert render_page(report.model_dump(mode="json"))
     assert render_page(report)                                # the model itself is accepted too
@@ -184,7 +184,7 @@ def test_path_traversal_on_the_id_is_refused():
 
 
 def test_serve_refuses_a_public_bind_with_no_token(monkeypatch):
-    from graph_strategies import serve as srv
-    monkeypatch.delenv("GRAPH_STRATEGIES_TOKEN", raising=False)
+    from workflow_workbench import serve as srv
+    monkeypatch.delenv("WORKFLOW_WORKBENCH_TOKEN", raising=False)
     with pytest.raises(SystemExit, match="refusing to bind"):
         srv.serve(host="0.0.0.0", token="")

@@ -1,6 +1,6 @@
 """A dev tool: browse a GraphSpec's strategies in a browser. Phone-friendly.
 
-    from graph_strategies.devserver import serve
+    from workflow_workbench.devserver import serve
     serve({"case_build": (spec, [strategy_a, strategy_b, ...])}, port=8800)
 
 ## Why a JSON endpoint and not just an HTML page
@@ -19,15 +19,15 @@ from __future__ import annotations
 import inspect
 from typing import Any
 
-from graph_strategies.diagram import impl_name
-from graph_strategies.graph_spec import GraphSpec
-from graph_strategies.spec import StrategySpec, is_sentinel
+from workflow_workbench.diagram import impl_name
+from workflow_workbench.graph_spec import GraphSpec
+from workflow_workbench.spec import StrategySpec, is_sentinel
 
 __all__ = ["spec_payload", "build_app", "serve"]
 
 
 def _endpoint_id(ep: Any) -> str:
-    from graph_strategies.spec import _End, _Start
+    from workflow_workbench.spec import _End, _Start
     if isinstance(ep, _Start):
         return "__start__"
     if isinstance(ep, _End):
@@ -119,7 +119,7 @@ PAGE = """<!DOCTYPE html>
 <html lang="en"><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>graph-strategies — strategies</title>
+<title>workflow-workbench — strategies</title>
 <style>
  :root{--bg:#0b1020;--card:#151b30;--ink:#e8ecf8;--dim:#93a0c0;--line:#2a3352;
        --vary:#fbbf24;--ok:#34d399;--skip:#5b6684;}
@@ -157,7 +157,7 @@ PAGE = """<!DOCTYPE html>
 <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
 </head><body>
 <header>
-  <h1>graph-strategies — strategy layers</h1>
+  <h1>workflow-workbench — strategy layers</h1>
   <div class="sub" id="hdr">loading…</div>
 </header>
 <div class="wrap">
@@ -264,7 +264,7 @@ def build_app(registry: dict[str, tuple[GraphSpec, list[StrategySpec]]]):
     from fastapi import FastAPI, HTTPException
     from fastapi.responses import HTMLResponse, JSONResponse
 
-    app = FastAPI(title="graph-strategies devserver", docs_url=None, redoc_url=None)
+    app = FastAPI(title="workflow-workbench devserver", docs_url=None, redoc_url=None)
 
     @app.get("/", response_class=HTMLResponse)
     def index() -> str:
@@ -272,7 +272,7 @@ def build_app(registry: dict[str, tuple[GraphSpec, list[StrategySpec]]]):
             f'<li style="margin:.5rem 0"><a style="color:#7dd3fc" href="/spec/{k}">{k}</a></li>'
             for k in registry)
         return (f"<body style='background:#0b1020;color:#e8ecf8;font-family:system-ui;padding:2rem'>"
-                f"<h1 style='font-size:1.1rem'>graph-strategies devserver</h1><ul>{links}</ul></body>")
+                f"<h1 style='font-size:1.1rem'>workflow-workbench devserver</h1><ul>{links}</ul></body>")
 
     @app.get("/spec/{name}", response_class=HTMLResponse)
     def page(name: str) -> str:

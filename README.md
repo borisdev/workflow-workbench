@@ -1,10 +1,14 @@
-# pydantic-graph-strategies
+# workflow-workbench
 
 Define one Pydantic graph design, bind competing strategies, then check, diagram, and evaluate
 them fairly.
 
-> An independent third-party library built on [Pydantic Graph](https://ai.pydantic.dev/graph/).
-> Not affiliated with or endorsed by Pydantic.
+Built on [Pydantic Graph](https://ai.pydantic.dev/graph/) and
+[Pydantic Evals](https://ai.pydantic.dev/evals/). Independent; not affiliated with Pydantic.
+
+A workbench, not a designer: **you author in Python, and this is where you look at what you
+wrote.** Nothing here edits a graph — the view is read-only, by construction. It accommodates the
+design, the checks, the visualization, the strategy comparison and the eval battles in one place.
 
 ```python
 class Counter(GraphSpec):
@@ -58,15 +62,15 @@ strategy that produced it. `diff_diagram()` reads the declaration instead.
 
 ## Viewing a report
 
-`graph_strategies.serve` is a stateless viewer: POST a report, GET a page. It renders with React
+`workflow_workbench.serve` is a stateless viewer: POST a report, GET a page. It renders with React
 Flow, or `?plain=1` for a self-contained page with no bundle at all.
 
 ```bash
-export GRAPH_STRATEGIES_TOKEN=$(python3 -c 'import secrets;print(secrets.token_urlsafe(24))')
-python3 -m graph_strategies.cli serve --host 0.0.0.0 --port 8800
+export WORKFLOW_WORKBENCH_TOKEN=$(python3 -c 'import secrets;print(secrets.token_urlsafe(24))')
+python3 -m workflow_workbench.cli serve --host 0.0.0.0 --port 8800
 ```
 
-⚠️ The renderer depends on the **schema** (`graph_strategies/payload.py`, which imports only
+⚠️ The renderer depends on the **schema** (`workflow_workbench/payload.py`, which imports only
 pydantic) and never on the **engine**. Hosting the viewer does not require pydantic-graph, so a
 report can be displayed somewhere that cannot build graphs.
 

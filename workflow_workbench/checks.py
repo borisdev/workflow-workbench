@@ -13,7 +13,7 @@ import inspect
 from collections.abc import Callable
 from typing import Any
 
-from graph_strategies.spec import EdgeSpec, NodeSpec, StrategySpec, _End, _Start, is_sentinel
+from workflow_workbench.spec import EdgeSpec, NodeSpec, StrategySpec, _End, _Start, is_sentinel
 
 __all__ = ["check_names", "check_reachable", "check_variables", "check_bindings",
            "check_implementations"]

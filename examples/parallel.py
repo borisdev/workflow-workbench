@@ -18,7 +18,7 @@ from typing import Any
 from pydantic_graph import GraphBuilder
 from pydantic_graph.join import reduce_sum
 
-from graph_strategies import END, START, EdgeSpec, GraphSpec, NodeSpec, StrategySpec, VariableSpec
+from workflow_workbench import END, START, EdgeSpec, GraphSpec, NodeSpec, StrategySpec, VariableSpec
 
 number = VariableSpec("number", int)
 total = VariableSpec("total", int)

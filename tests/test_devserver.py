@@ -6,8 +6,8 @@ import pytest
 pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient
 
-from graph_strategies import END, START, EdgeSpec, GraphSpec, NodeSpec, StrategySpec, VariableSpec
-from graph_strategies.devserver import build_app, spec_payload
+from workflow_workbench import END, START, EdgeSpec, GraphSpec, NodeSpec, StrategySpec, VariableSpec
+from workflow_workbench.devserver import build_app, spec_payload
 
 v = VariableSpec("v", str)
 a = NodeSpec("a", inputs=(v,), outputs=(v,))

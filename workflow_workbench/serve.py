@@ -20,7 +20,7 @@ stores nothing. That is the CI/machine path. `/r/<sha>` is the phone path.
 
 ## The token
 
-`GRAPH_STRATEGIES_TOKEN` — required for every route when bound to anything but localhost.
+`WORKFLOW_WORKBENCH_TOKEN` — required for every route when bound to anything but localhost.
 
 ⚠️ It is not there because someone might guess a URL. There is no URL to guess: scanners sweep
 the IPv4 space and connect to `ip:port` directly. Measured on the box this was written for — 842
@@ -36,16 +36,16 @@ import secrets
 import tempfile
 from typing import Any
 
-from graph_strategies.report import PayloadError, render_page, validate_payload
+from workflow_workbench.report import PayloadError, render_page, validate_payload
 
 __all__ = ["build_app", "serve"]
 
-TOKEN_ENV = "GRAPH_STRATEGIES_TOKEN"
+TOKEN_ENV = "WORKFLOW_WORKBENCH_TOKEN"
 
 
 def _store_dir() -> pathlib.Path:
-    d = pathlib.Path(os.getenv("GRAPH_STRATEGIES_STORE")
-                     or (pathlib.Path(tempfile.gettempdir()) / "graph-strategies-reports"))
+    d = pathlib.Path(os.getenv("WORKFLOW_WORKBENCH_STORE")
+                     or (pathlib.Path(tempfile.gettempdir()) / "workflow-workbench-reports"))
     d.mkdir(parents=True, exist_ok=True)
     return d
 
@@ -55,7 +55,7 @@ ISLAND_PAGE = """<!DOCTYPE html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>__TITLE__</title>
-<link rel="stylesheet" href="/static/graph-strategies.css">
+<link rel="stylesheet" href="/static/workflow-workbench.css">
 <style>
  body{margin:0;background:#0b1020;color:#e8ecf8;
       font:15px/1.5 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
@@ -67,8 +67,8 @@ ISLAND_PAGE = """<!DOCTYPE html>
 <noscript>This view is a React Flow island and needs JavaScript.
 Append <code>&amp;plain=1</code> to the URL for the no-JavaScript version.</noscript>
 <!-- The island. One div, one bundle, one data url. Nothing else on this page is React. -->
-<div id="graph-strategies-root" data-report-url="__DATA_URL__"></div>
-<script src="/static/graph-strategies.js" defer></script>
+<div id="workflow-workbench-root" data-report-url="__DATA_URL__"></div>
+<script src="/static/workflow-workbench.js" defer></script>
 </body></html>
 """
 
@@ -79,10 +79,10 @@ def build_app(*, token: str | None = None, require_token: bool = True):
     from fastapi.staticfiles import StaticFiles
 
     token = token if token is not None else os.getenv(TOKEN_ENV, "")
-    app = FastAPI(title="graph-strategies viewer", docs_url=None, redoc_url=None)
+    app = FastAPI(title="workflow-workbench viewer", docs_url=None, redoc_url=None)
     store = _store_dir()
 
-    # The built island. Committed into the package, because `pip install pydantic-graph-strategies` runs no
+    # The built island. Committed into the package, because `pip install workflow-workbench` runs no
     # node step — an un-built island would be a 404 with no way to fix it at install time.
     static = pathlib.Path(__file__).parent / "static"
     if static.is_dir():
@@ -105,7 +105,7 @@ def build_app(*, token: str | None = None, require_token: bool = True):
         """Liveness only, and unauthenticated ON PURPOSE — it reports that the process is up and
         nothing about what it holds. `.claude/rules/checks.md`: liveness is not readiness, and a
         health endpoint that leaks state is not a health endpoint."""
-        return {"ok": True, "service": "graph-strategies viewer"}
+        return {"ok": True, "service": "workflow-workbench viewer"}
 
     @app.post("/render")
     def render(payload: Any = Body(...), token_q: str | None = Query(None, alias="token")):
@@ -161,7 +161,7 @@ def build_app(*, token: str | None = None, require_token: bool = True):
         html_p, json_p = store / f"{sha}.html", store / f"{sha}.json"
         if not html_p.exists():
             raise HTTPException(404, f"no report {sha!r}")
-        if plain or not (static / "graph-strategies.js").exists() or not json_p.exists():
+        if plain or not (static / "workflow-workbench.js").exists() or not json_p.exists():
             return html_p.read_text(encoding="utf-8")
         data = json.loads(json_p.read_text(encoding="utf-8"))
         title = str(data.get("name") or "workflow report")

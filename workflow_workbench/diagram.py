@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from graph_strategies.spec import EdgeSpec, NodeSpec, StrategySpec, _End, _Start, is_sentinel
+from workflow_workbench.spec import EdgeSpec, NodeSpec, StrategySpec, _End, _Start, is_sentinel
 
 __all__ = ["diagram", "diff_diagram", "impl_name"]
 
@@ -42,7 +42,7 @@ def diagram(nodes: tuple[NodeSpec, ...], edges: tuple[EdgeSpec, ...], *,
     draws a dataflow, and the edge LABELS — which variable crosses which wire — are the thing a
     reader needs and the thing a state diagram has nowhere to put.
     """
-    out = [f"%% {title}" if title else "%% graph-strategies", "flowchart TD"]
+    out = [f"%% {title}" if title else "%% workflow-workbench", "flowchart TD"]
     out.append("  START([START])")
     for n in nodes:
         label = n.name

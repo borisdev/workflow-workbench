@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from graph_strategies import (
+from workflow_workbench import (
     END,
     START,
     EdgeSpec,

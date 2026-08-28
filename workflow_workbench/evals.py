@@ -24,8 +24,8 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-from graph_strategies.graph_spec import GraphSpec
-from graph_strategies.spec import SpecError, StrategySpec
+from workflow_workbench.graph_spec import GraphSpec
+from workflow_workbench.spec import SpecError, StrategySpec
 
 __all__ = ["eval_battle", "compare_graphs", "BattleResult", "PairwiseVerdict", "pairwise_battle"]
 
