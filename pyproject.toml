@@ -29,3 +29,5 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["workflow_spec"]
+# The built island ships IN the wheel — `pip install` runs no node step.
+artifacts = ["workflow_spec/static/*"]

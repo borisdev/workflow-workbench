@@ -36,7 +36,7 @@ import secrets
 import tempfile
 from typing import Any
 
-from workflow_spec.report import PayloadError, render_page
+from workflow_spec.report import PayloadError, render_page, validate_payload
 
 __all__ = ["build_app", "serve"]
 
@@ -50,13 +50,45 @@ def _store_dir() -> pathlib.Path:
     return d
 
 
+ISLAND_PAGE = """<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>__TITLE__</title>
+<link rel="stylesheet" href="/static/workflow-spec.css">
+<style>
+ body{margin:0;background:#0b1020;color:#e8ecf8;
+      font:15px/1.5 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+ header{padding:.9rem 1rem;border-bottom:1px solid #2a3352}
+ h1{margin:0;font-size:1rem} .sub{color:#93a0c0;font-size:.78rem;margin-top:.15rem}
+ noscript{display:block;padding:1rem;color:#fbbf24}
+</style></head><body>
+<header><h1>__TITLE__</h1><div class="sub">__SUB__</div></header>
+<noscript>This view is a React Flow island and needs JavaScript.
+Append <code>&amp;plain=1</code> to the URL for the no-JavaScript version.</noscript>
+<!-- The island. One div, one bundle, one data url. Nothing else on this page is React. -->
+<div id="workflow-spec-root" data-report-url="__DATA_URL__"></div>
+<script src="/static/workflow-spec.js" defer></script>
+</body></html>
+"""
+
+
 def build_app(*, token: str | None = None, require_token: bool = True):
     from fastapi import Body, FastAPI, HTTPException, Query
     from fastapi.responses import HTMLResponse, JSONResponse
+    from fastapi.staticfiles import StaticFiles
 
     token = token if token is not None else os.getenv(TOKEN_ENV, "")
     app = FastAPI(title="workflow-spec viewer", docs_url=None, redoc_url=None)
     store = _store_dir()
+
+    # The built island. Committed into the package, because `pip install workflow-spec` runs no
+    # node step — an un-built island would be a 404 with no way to fix it at install time.
+    static = pathlib.Path(__file__).parent / "static"
+    if static.is_dir():
+        # Unauthenticated: it is a public JS bundle with no report data in it. Gating it would
+        # only mean the token travels in a second place.
+        app.mount("/static", StaticFiles(directory=static), name="static")
 
     def check(supplied: str | None) -> None:
         if not require_token:
@@ -85,6 +117,10 @@ def build_app(*, token: str | None = None, require_token: bool = True):
         blob = json.dumps(payload, sort_keys=True, default=str).encode()
         sha = hashlib.sha256(blob).hexdigest()[:16]
         (store / f"{sha}.html").write_text(html, encoding="utf-8")
+        # The island fetches this. Stored as the VALIDATED payload, not the raw body, so the
+        # renderer and the island are guaranteed to be looking at the same document.
+        (store / f"{sha}.json").write_text(
+            json.dumps(validate_payload(payload), default=str), encoding="utf-8")
         return JSONResponse({"sha": sha, "url": f"/r/{sha}"})
 
     @app.post("/render/html", response_class=HTMLResponse)
@@ -96,16 +132,45 @@ def build_app(*, token: str | None = None, require_token: bool = True):
         except PayloadError as exc:
             raise HTTPException(422, str(exc)) from exc
 
-    @app.get("/r/{sha}", response_class=HTMLResponse)
-    def get_report(sha: str, token_q: str | None = Query(None, alias="token")):
-        check(token_q)
+    def _safe(sha: str) -> str:
         # Reject anything that is not a plain hex id before it reaches the filesystem.
         if not sha.isalnum() or len(sha) > 64:
             raise HTTPException(400, "bad id")
-        p = store / f"{sha}.html"
+        return sha
+
+    @app.get("/r/{sha}/data")
+    def report_data(sha: str, token_q: str | None = Query(None, alias="token")):
+        """What the island fetches. The same validated payload the plain renderer used."""
+        check(token_q)
+        p = store / f"{_safe(sha)}.json"
         if not p.exists():
             raise HTTPException(404, f"no report {sha!r}")
-        return p.read_text(encoding="utf-8")
+        return JSONResponse(json.loads(p.read_text(encoding="utf-8")))
+
+    @app.get("/r/{sha}", response_class=HTMLResponse)
+    def get_report(sha: str, token_q: str | None = Query(None, alias="token"),
+                   plain: int = Query(0)):
+        """The React Flow island by default; `?plain=1` for the dependency-free rendering.
+
+        ⚠️ Both are kept, and the plain one is not a legacy path. It is one self-contained file
+        with no bundle, which is what makes `POST /render/html` usable from a CI job or an email —
+        and it is the only thing that still works if the island fails to load.
+        """
+        check(token_q)
+        sha = _safe(sha)
+        html_p, json_p = store / f"{sha}.html", store / f"{sha}.json"
+        if not html_p.exists():
+            raise HTTPException(404, f"no report {sha!r}")
+        if plain or not (static / "workflow-spec.js").exists() or not json_p.exists():
+            return html_p.read_text(encoding="utf-8")
+        data = json.loads(json_p.read_text(encoding="utf-8"))
+        title = str(data.get("name") or "workflow report")
+        sub = (f"{data.get('input_type') or '?'} \u2192 {data.get('output_type') or '?'}"
+               f"  \u00b7  {len(data.get('nodes') or [])} stages"
+               f"  \u00b7  {len(data.get('layers') or [])} strategies")
+        url = f"/r/{sha}/data" + (f"?token={token_q}" if token_q else "")
+        return (ISLAND_PAGE.replace("__TITLE__", title.replace("<", ""))
+                .replace("__SUB__", sub).replace("__DATA_URL__", url))
 
     @app.get("/")
     def index(token_q: str | None = Query(None, alias="token")):

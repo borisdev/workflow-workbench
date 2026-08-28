@@ -1,0 +1,36 @@
+.ws-root { display: flex; flex-direction: column; gap: 0; }
+.ws-bar { display: grid; grid-template-columns: 1fr 1fr; gap: .7rem; padding: .8rem; }
+@media (max-width: 560px) { .ws-bar { grid-template-columns: 1fr; } }
+.ws-bar label { display: block; }
+.ws-bar span { display: block; font-size: .7rem; text-transform: uppercase; letter-spacing: .09em;
+               color: #93a0c0; margin-bottom: .3rem; }
+.ws-bar select { width: 100%; padding: .6rem; border-radius: .5rem; background: #0f1528;
+                 color: #e8ecf8; border: 1px solid #2a3352; font-size: 16px; }
+.ws-varies-line { padding: 0 .8rem .7rem; color: #fbbf24; font-size: .82rem; }
+.ws-canvas { height: 58vh; min-height: 320px; border-top: 1px solid #2a3352;
+             border-bottom: 1px solid #2a3352; }
+.ws-mini { background: #0b1020 !important; }
+
+.ws-panel { padding: .9rem; display: flex; flex-direction: column; gap: 1rem; }
+.ws-panel section { background: #151b30; border: 1px solid #2a3352; border-radius: .7rem;
+                    padding: .9rem; }
+.ws-panel h3 { margin: 0 0 .6rem; font-size: .7rem; text-transform: uppercase;
+               letter-spacing: .09em; color: #93a0c0; font-weight: 600; }
+.ws-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.ws-panel table { border-collapse: collapse; width: 100%; font-size: .82rem; }
+.ws-panel th, .ws-panel td { padding: .42rem .5rem; text-align: left;
+                             border-bottom: 1px solid #2a3352; white-space: nowrap; }
+.ws-panel th { color: #93a0c0; font-weight: 600; font-size: .7rem; text-transform: uppercase; }
+.ws-sticky { position: sticky; left: 0; background: #151b30; }
+.ws-hot { color: #fbbf24; font-weight: 600; }
+.ws-mono { font-family: ui-monospace, Menlo, monospace; font-size: .78rem; }
+.ws-nr { color: #5b6684; font-style: italic; }
+.ws-sub { color: #93a0c0; font-size: .74rem; margin: .5rem 0 0; }
+.ws-pill { display: inline-block; padding: .08rem .45rem; border-radius: 1rem; font-size: .66rem;
+           border: 1px solid #2a3352; color: #93a0c0; margin-left: .3rem; }
+.ws-panel pre { background: #0f1528; border: 1px solid #2a3352; border-radius: .5rem;
+                padding: .7rem; overflow-x: auto; font-size: .71rem; line-height: 1.45;
+                margin: .4rem 0 0; }
+.ws-panel summary { cursor: pointer; color: #93a0c0; font-size: .8rem; }
+.ws-loading, .ws-error { padding: 2rem; color: #93a0c0; font: 14px system-ui; }
+.ws-error { color: #f87171; }
