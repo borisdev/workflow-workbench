@@ -70,6 +70,21 @@ See [`examples/subgraph.py`](examples/subgraph.py) for the `naive` / `better` / 
 Use this only when several strategies must satisfy the same graph structure and typed contracts
 before being compared.
 
+## What the declaration can express — measured, 1 of 6
+
+`docs/probe_builder_features.py` runs every `GraphBuilder` feature and then asks which a
+`GraphSpec` can declare as DATA, which is the only form `check()` and `diagram()` can read.
+
+| feature | declarable |
+|---|---|
+| `step` | **yes** |
+| `transform` on an edge, `map` + `join`, `broadcast`, `decision`, `edge_from(*sources)` | no |
+
+All six **run** — through `build_pydantic_structure()`. But that override makes `edges`
+decorative and `check()` reports reachability as `NOT CHECKED` rather than passing. So today this
+library checks and diagrams step chains, and merely executes everything else. That is a real
+limit, not a footnote: `decision` is conditional routing, and nothing here can see it.
+
 ## What it owns, and what it does not
 
 This library owns the design — `GraphSpec`, `NodeSpec`, `EdgeSpec`, `VariableSpec`,
@@ -118,6 +133,7 @@ report can be displayed somewhere that cannot build graphs.
 uv run pytest -q
 uv run python3 docs/probe_api.py                  # every claim above, against the real library
 uv run python3 docs/probe_parallel_and_evals.py
+uv run python3 docs/probe_builder_features.py     # what the declaration can and cannot express
 uv run python3 examples/counter.py
 uv run python3 examples/parallel.py
 uv run python3 examples/subgraph.py
