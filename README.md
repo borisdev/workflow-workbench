@@ -87,6 +87,7 @@ paying on rung 2, when `pick` has two implementations and something has to hold 
 | 5 | a **battle** — both arms scored on the same cases, against a noise floor | [`stage5_battle.py`](examples/ladder/stage5_battle.py) |
 | 6 | the **diff diagram** neither library can draw | [`stage6_diagrams.py`](examples/ladder/stage6_diagrams.py) |
 | 7 | proof it is a real `Graph` — their `iter()` drives it unchanged | [`stage7_iter.py`](examples/ladder/stage7_iter.py) |
+| 8 | **a declared join** — two producers into one consumer, combined rather than dropped | [`stage8_join.py`](examples/ladder/stage8_join.py) |
 
 ```bash
 uv run python3 -m examples.ladder.stage2_strategies    # any rung
@@ -141,15 +142,22 @@ before being compared.
 `docs/probe_builder_features.py` runs every `GraphBuilder` feature and then asks which a
 `GraphSpec` can declare as DATA, which is the only form `check()` and `diagram()` can read.
 
-| feature | declarable |
-|---|---|
-| `step` | **yes** |
-| `transform` on an edge, `map` + `join`, `broadcast`, `decision`, `edge_from(*sources)` | no |
+| feature | declarable | as |
+|---|---|---|
+| `step` | **yes** | `NodeSpec` |
+| `join` — fan-in, combining arrivals | **yes** | `JoinSpec` |
+| `map` — fan-out over a list | no | |
+| `transform` on an edge | no | |
+| `broadcast` | no | |
+| `decision` — conditional routing | no | |
 
-All six **run** — through `build_pydantic_structure()`. But that override makes `edges`
-decorative and `check()` reports reachability as `NOT CHECKED` rather than passing. So today this
-library checks and diagrams step chains, and merely executes everything else. That is a real
-limit, not a footnote: `decision` is conditional routing, and nothing here can see it.
+All of them **run** — through `build_pydantic_structure()`. But that override makes `edges`
+decorative and `check()` reports reachability as `NOT CHECKED` for the *whole design*, so
+reaching for one un-declarable feature costs the checks on every node around it. That was the
+argument for `JoinSpec`: having a join used to mean giving up reachability checking entirely.
+
+`decision` is the consequential one still missing — it is conditional routing, and nothing here
+can see it.
 
 ## What it owns, and what it does not
 

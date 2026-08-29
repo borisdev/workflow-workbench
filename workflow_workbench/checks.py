@@ -328,6 +328,9 @@ def check_subgraphs(parent: Any, strategy: StrategySpec,
 def check_step_arity(nodes: tuple[NodeSpec, ...], edges: tuple[EdgeSpec, ...]) -> list[str]:
     """A step body receives exactly ONE value, so a node cannot consume two inputs at once.
 
+    ⚠️ Takes `nodes` ONLY, never joins. A `JoinSpec` exists precisely to receive several arrivals
+    and is the fix this check points at; running it over joins would flag the solution.
+
     ⛔ This is the fan-in defect, and it is silent in every other check. Measured against
     pydantic-graph 2.35.1 with `docs/probe_builder_features.py`'s shape:
 
@@ -347,10 +350,9 @@ def check_step_arity(nodes: tuple[NodeSpec, ...], edges: tuple[EdgeSpec, ...]) -
         declaring >1 input      the contract is unsatisfiable by a step, whatever is wired to it
         >1 incoming edge        the node is INVOKED once per edge, and the results do not merge
 
-    The fix for either is a join — `g.join(reducer, initial=...)` takes
-    `(current, input) -> current`, which is the shape that can actually combine two arrivals. A
-    join is not a step and has no implementation to bind, so it belongs in `edges` and not in
-    `nodes`; `examples/parallel.py` shows the form.
+    The fix for either is a `JoinSpec` in the design's `joins`, whose reducer
+    `(current, input) -> current` is the shape that can actually combine two arrivals.
+    `examples/ladder/stage8_join.py` shows the form.
 
     ⚠️ Scope, stated because it will need revisiting: within what a `GraphSpec` can DECLARE today
     every incoming edge fires, so >1 always means >1 invocation. Once `decision` becomes

@@ -18,6 +18,7 @@ from typing import Any
 
 from workflow_workbench.spec import (
     EdgeSpec,
+    JoinSpec,
     NodeSpec,
     StrategySpec,
     SubgraphBinding,
@@ -70,6 +71,12 @@ def diagram(nodes: tuple[NodeSpec, ...], edges: tuple[EdgeSpec, ...], *,
     out = [f"%% {title}" if title else "%% workflow-workbench", "flowchart TD"]
     out.append("  START([START])")
     for n in nodes:
+        # ⚠️ A join is drawn as a distinct shape and NEVER annotated with an implementation:
+        # it has none to bind, and printing a blank line under it would read as "unbound".
+        if isinstance(n, JoinSpec):
+            reducer = getattr(n.reducer, "__name__", str(n.reducer))
+            out.append(f"  {_node_id(n)}[/\"{n.name}<br/><i>join: {reducer}</i>\"/]")
+            continue
         label = n.name
         if strategy is not None and n in strategy.bindings:
             label = f"{n.name}<br/><i>{impl_name(strategy[n])}</i>"
@@ -99,6 +106,10 @@ def diff_diagram(nodes: tuple[NodeSpec, ...], edges: tuple[EdgeSpec, ...],
     out = [f"%% {title or 'strategy diff'}: {a.name} vs {b.name}", "flowchart TD"]
     out.append("  START([START])")
     for n in nodes:
+        if isinstance(n, JoinSpec):
+            reducer = getattr(n.reducer, "__name__", str(n.reducer))
+            out.append(f"  {_node_id(n)}[/\"{n.name}<br/><i>join: {reducer}</i>\"/]:::shared")
+            continue
         if n in varies:
             out.append(f"  {_node_id(n)}[\"{n.name}<br/>{a.name}: <i>{impl_name(a[n])}</i>"
                        f"<br/>{b.name}: <i>{impl_name(b[n])}</i>\"]:::varies")

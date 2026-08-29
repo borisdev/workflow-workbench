@@ -3,6 +3,7 @@
     VariableSpec     a named, typed value that may flow along an edge
     NodeSpec         a semantic role with a typed contract — and no implementation
     EdgeSpec         source -> target, carrying one named variable
+    JoinSpec         the one node kind that COMBINES several arrivals; no implementation to bind
     SubgraphBinding  a whole child design, used as ONE node's implementation
     StrategySpec     a complete NodeSpec -> implementation mapping
 
@@ -18,8 +19,20 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from workflow_workbench.graph_spec import GraphSpec
 
-__all__ = ["SpecError", "VariableSpec", "NodeSpec", "EdgeSpec", "SubgraphBinding", "StrategySpec",
-           "START", "END", "Endpoint", "is_sentinel"]
+__all__ = ["SpecError", "VariableSpec", "NodeSpec", "EdgeSpec", "JoinSpec", "SubgraphBinding",
+           "StrategySpec", "START", "END", "Endpoint", "is_sentinel"]
+
+
+class _Unset:
+    """A seed sentinel. `None` cannot be it — `initial=None` is a legal seed for reduce_null."""
+
+    __slots__ = ()
+
+    def __repr__(self) -> str:
+        return "UNSET"
+
+
+_UNSET = _Unset()
 
 
 class SpecError(Exception):
@@ -166,6 +179,58 @@ class EdgeSpec:
 
 def _ep_name(ep: Any) -> str:
     return "START" if isinstance(ep, _Start) else "END" if isinstance(ep, _End) else ep.name
+
+
+@dataclass(frozen=True, eq=False)
+class JoinSpec:
+    """The one thing that can combine several arrivals into one value.
+
+    A step body is `(ctx) -> Out` and receives exactly ONE value, so a node fed by two edges is
+    invoked twice and one result is discarded — silently, until `check_step_arity` existed. A
+    reducer is `(current, input) -> current`, which is the shape that can actually accumulate.
+
+        squares = JoinSpec("squares", reduce_list_append, initial_factory=list,
+                           inputs=(square,), outputs=(all_squares,))
+
+    ⚠️ A join is NOT a `NodeSpec` and lives in `GraphSpec.joins`, not `nodes`. It has no
+    implementation, so a `StrategySpec` has nothing to bind for it and `varies()` can never report
+    it. Putting it in `nodes` would make "a node is a role a strategy fills" false, and every
+    caller of `nodes` would need to ask what kind of thing it just got.
+
+    ⚠️ It IS a declared endpoint, so edges may reference it and `check_reachable` can see it. That
+    is the improvement over hand-wiring one in `build_pydantic_structure()`: before this type, a
+    join could only be reached by overriding that method, which turns reachability checking off
+    for the entire design.
+
+    `eq=False` for the same reason as `NodeSpec`: identity, not field equality, so two
+    field-identical declarations stay two distinct joins.
+    """
+
+    name: str
+    reducer: Callable[..., Any]
+    initial: Any = _UNSET
+    initial_factory: Callable[[], Any] | None = None
+    inputs: tuple[VariableSpec, ...] = ()
+    outputs: tuple[VariableSpec, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not self.name:
+            raise SpecError("a JoinSpec needs a name — it becomes the node id in the graph")
+        if not callable(self.reducer):
+            raise SpecError(
+                f"{self.name}.reducer is not callable. A join reduces with "
+                f"`(current, input) -> current`; pydantic_graph.join ships reduce_sum, "
+                f"reduce_list_append, reduce_list_extend and reduce_dict_update.")
+        if (self.initial is _UNSET) == (self.initial_factory is None):
+            raise SpecError(
+                f"{self.name} needs exactly one of `initial=` or `initial_factory=`. "
+                f"⚠️ Use `initial_factory` for a MUTABLE seed — `initial=[]` is built once at "
+                f"declaration and shared by every run of the graph, so one run's results leak "
+                f"into the next.")
+
+    def __repr__(self) -> str:
+        seed = "initial_factory" if self.initial_factory is not None else f"initial={self.initial!r}"
+        return f"JoinSpec({self.name!r}, {getattr(self.reducer, '__name__', self.reducer)}, {seed})"
 
 
 @dataclass(frozen=True)

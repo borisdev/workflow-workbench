@@ -198,22 +198,23 @@ print(f"escape-hatch one  check() -> {hatch_findings[0][:88]}...")
 print()
 
 MATRIX = [
-    ("step",                  True,  "`NodeSpec` + `EdgeSpec`"),
+    ("step",                  True,  "NodeSpec + EdgeSpec"),
+    ("join (fan-in)",         True,  "JoinSpec, in `joins` rather than `nodes` — it carries a "
+                                     "reducer, so a strategy has nothing to bind for it"),
+    ("map (fan-out)",         False, "no EdgeSpec field says 'iterate this edge'"),
     ("transform (on an edge)", False, "no EdgeSpec field for a transform function"),
-    ("map + join",            False, "a join takes (current, input)->current, not (ctx)->Out; "
-                                     "it is not a step and cannot be a NodeSpec"),
     ("broadcast",             False, "one EdgeSpec is one wire; a fork is a set of them "
                                      "sharing a fork id"),
     ("decision",              False, "routes on the TYPE of the value; EdgeSpec has no "
                                      "condition and a Decision has no implementation to bind"),
-    ("edge_from(*sources)",   False, "EdgeSpec.source is ONE endpoint"),
 ]
-print(f"{'feature':<24} {'declarable':>11}   why not")
+print(f"{'feature':<26} {'declarable':>11}   how, or why not")
 for feat, ok, why in MATRIX:
-    print(f"{feat:<24} {('YES' if ok else 'no'):>11}   {'' if ok else why}")
+    print(f"{feat:<26} {('YES' if ok else 'no'):>11}   {why}")
 
 declarable = sum(1 for _, ok, _ in MATRIX if ok)
 print(f"\n{declarable}/{len(MATRIX)} declarable. The other {len(MATRIX) - declarable} run only "
-      f"through `build_pydantic_structure()`,")
-print("which makes `edges` decorative and reports reachability as NOT CHECKED — see above.")
+      f"through `build_pydantic_structure()`, which makes `edges`")
+print("decorative and reports reachability as NOT CHECKED for the WHOLE design — see above. That")
+print("is why JoinSpec was worth adding: a join used to cost the checks on every node around it.")
 sys.exit(1 if bad else 0)

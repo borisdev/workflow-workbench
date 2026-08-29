@@ -189,7 +189,7 @@ def test_rung7_a_subgraph_stays_out_of_the_parents_event_stream() -> None:
 
 @pytest.mark.parametrize("module", [
     "their_hello", "stage1_bare", "stage2_strategies", "stage3_new_node",
-    "stage4_subgraph", "stage5_battle", "stage6_diagrams", "stage7_iter",
+    "stage4_subgraph", "stage5_battle", "stage6_diagrams", "stage7_iter", "stage8_join",
 ])
 def test_every_rung_runs_as_a_script(module: str) -> None:
     """Weakest test here, and it earns its place: the README prints these commands, and a reader
@@ -229,3 +229,70 @@ def test_the_readme_ladder_table_lists_every_rung_module() -> None:
 
     unlisted = [m for m in modules if f"examples/ladder/{m}" not in readme]
     assert not unlisted, f"ladder modules missing from the README table: {unlisted}"
+
+
+# ── rung 8: a declared join ─────────────────────────────────────────────────────────────────
+
+def test_rung8_a_join_actually_combines_both_arrivals() -> None:
+    """⛔ The assertion that matters is `/` being present: BOTH producers reached the result.
+
+    The pre-JoinSpec version of this design returned one greeting, and no check objected.
+    """
+    from examples.ladder.stage8_join import Greetings, Guest, greet
+
+    spec = Greetings()
+    assert spec.check(greet) == []
+
+    result = spec.render(greet).run_sync(inputs="Ada", state=Guest())
+    assert result == "Hello, Ada! / Yo, Ada!"
+    assert "collect" in spec.render(greet).nodes
+
+
+def test_rung8_the_same_shape_as_a_step_is_refused() -> None:
+    from examples.ladder.stage8_join import (
+        BrokenGreetings, announce, announce_both, casual, collect_as_step, formal,
+        say_casual, say_formal)
+    from workflow_workbench import StrategySpec
+
+    async def collect_step(ctx) -> list:
+        return [ctx.inputs]
+
+    broken = StrategySpec("broken", {say_formal: formal, say_casual: casual,
+                                     collect_as_step: collect_step, announce: announce_both})
+    with pytest.raises(SpecError, match="declares 2 inputs"):
+        BrokenGreetings().render(broken)
+
+
+def test_rung8_a_join_is_reachability_checked_which_it_could_not_be_before() -> None:
+    """The real gain. A join used to require overriding build_pydantic_structure(), which reports
+    reachability as NOT CHECKED for the ENTIRE design — so having a join meant giving up the check
+    on every node around it."""
+    from examples.ladder.stage8_join import Greetings, greet
+
+    findings = Greetings().check(greet)
+    assert not any("NOT CHECKED" in f for f in findings), findings
+
+
+def test_rung8_a_join_binds_nothing_and_never_appears_in_varies() -> None:
+    """A join has no implementation, so a strategy that 'bound' it would be describing nothing."""
+    from examples.ladder.stage8_join import Greetings, collect, greet
+
+    assert collect not in greet.bindings
+    assert Greetings().check(greet) == []
+    assert "collect" not in Greetings().varies(greet, greet)
+
+
+def test_rung8_a_mutable_seed_must_be_a_factory() -> None:
+    """⚠️ `initial=[]` is built once at declaration and shared by every run of the graph, so one
+    run's results leak into the next. Refused at declaration rather than debugged later."""
+    from pydantic_graph.join import reduce_list_append
+
+    from workflow_workbench import JoinSpec
+
+    with pytest.raises(SpecError, match="exactly one of"):
+        JoinSpec("bad", reduce_list_append)
+    with pytest.raises(SpecError, match="exactly one of"):
+        JoinSpec("bad", reduce_list_append, initial=[], initial_factory=list)
+
+    JoinSpec("fine", reduce_list_append, initial_factory=list)
+    JoinSpec("also_fine", reduce_list_append, initial=0)

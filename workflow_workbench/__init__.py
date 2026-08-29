@@ -23,6 +23,7 @@ from workflow_workbench.spec import (
     END,
     START,
     EdgeSpec,
+    JoinSpec,
     NodeSpec,
     SpecError,
     StrategySpec,
@@ -31,7 +32,8 @@ from workflow_workbench.spec import (
 )
 
 __all__ = [
-    "GraphSpec", "NodeSpec", "EdgeSpec", "VariableSpec", "StrategySpec", "SubgraphBinding",
+    "GraphSpec", "NodeSpec", "EdgeSpec", "JoinSpec", "VariableSpec", "StrategySpec",
+    "SubgraphBinding",
     "SpecError",
     "START", "END",
     "check_names", "check_reachable", "check_variables", "check_bindings",
