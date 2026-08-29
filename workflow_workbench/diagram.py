@@ -54,10 +54,18 @@ def diagram(nodes: tuple[NodeSpec, ...], edges: tuple[EdgeSpec, ...], *,
             title: str = "", strategy: StrategySpec | None = None) -> str:
     """Mermaid `flowchart TD` for a design, optionally annotated with one strategy's bindings.
 
-    ⚠️ `flowchart`, where `pydantic_graph.Graph.render()` emits `stateDiagram-v2` (verified). The
-    difference is deliberate and worth stating: a state diagram draws states and transitions; this
-    draws a dataflow, and the edge LABELS — which variable crosses which wire — are the thing a
-    reader needs and the thing a state diagram has nowhere to put.
+    ⚠️ `flowchart`, where `pydantic_graph.Graph.render()` emits `stateDiagram-v2` (verified).
+
+    ⛔ CORRECTED. This docstring used to justify that choice by claiming the edge labels — which
+    variable crosses which wire — are "the thing a state diagram has nowhere to put". **That is
+    false, and `examples/ladder/stage6_diagrams.py` prints the counter-example.** Their renderer
+    emits `pick --> compose: salutation`; the label survives, because `build_pydantic_structure`
+    passes it to `.label()` and their renderer prints it.
+
+    The format choice is a preference, then, not a capability gap — say so rather than inventing
+    a limitation for it. What their renderer genuinely cannot do is elsewhere and is stated above:
+    it needs a BUILT graph, so it cannot draw an unimplemented design, and both arms of one design
+    render byte-identically because a built graph does not know which strategy produced it.
     """
     out = [f"%% {title}" if title else "%% workflow-workbench", "flowchart TD"]
     out.append("  START([START])")

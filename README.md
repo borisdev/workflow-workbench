@@ -27,6 +27,72 @@ graph = Counter().render(modest)         # a real pydantic_graph.Graph
 eval_battle(Counter(), modest, aggressive, dataset)
 ```
 
+## The ladder — start with what you already have
+
+Every rung is a variation of an example from
+[Pydantic Graph's builder docs](https://pydantic.dev/docs/ai/graph/builder/), a module in
+`examples/ladder/`, and a test in `tests/test_ladder.py`. Read them in order; each adds exactly
+one capability.
+
+**Rung 0 is Pydantic Graph alone, and it is fine.** This is their `visualize_graph.py` shape —
+two steps, the second formatting the first's output:
+
+```python
+g = GraphBuilder(state_type=Guest, input_type=str, output_type=str)
+
+@g.step
+async def pick(ctx: StepContext[Guest, None, str]) -> str:
+    ctx.state.name = ctx.inputs
+    return "Hello"
+
+@g.step
+async def compose(ctx: StepContext[Guest, None, str]) -> str:
+    return f"{ctx.inputs}, {ctx.state.name}!"
+
+g.add(g.edge_from(g.start_node).to(pick),
+      g.edge_from(pick).to(compose),
+      g.edge_from(compose).to(g.end_node))
+```
+
+The same thing declared, on rung 1. The topology stops being calls and becomes data:
+
+```python
+salutation = VariableSpec("salutation", str)
+greeting   = VariableSpec("greeting", str)
+
+pick    = NodeSpec("pick", outputs=(salutation,))
+compose = NodeSpec("compose", inputs=(salutation,), outputs=(greeting,))
+
+class HelloWorld(GraphSpec):
+    name = "hello_world"
+    state_type = Guest
+    input_type, output_type = str, str
+    nodes = (pick, compose)
+    edges = (EdgeSpec(START, pick),
+             EdgeSpec(pick, compose, salutation),
+             EdgeSpec(compose, END, greeting))
+```
+
+Both print `'Hello, Ada!'` and both have the node ids `pick`, `compose`. **On this rung that is a
+lateral move** — more code, same result — and the README will not pretend otherwise. It starts
+paying on rung 2, when `pick` has two implementations and something has to hold them to one shape.
+
+| rung | adds | source |
+|---|---|---|
+| 0 | nothing — Pydantic Graph alone, the control | [`their_hello.py`](examples/ladder/their_hello.py) |
+| 1 | the design as data; `check()` and `diagram()` with nothing implemented | [`stage1_bare.py`](examples/ladder/stage1_bare.py) |
+| 2 | **two strategies over one design**, with identical node ids | [`stage2_strategies.py`](examples/ladder/stage2_strategies.py) |
+| 3 | a new node — and a strategy that predates it is refused | [`stage3_new_node.py`](examples/ladder/stage3_new_node.py) |
+| 4 | one node implemented by a **whole child design** | [`stage4_subgraph.py`](examples/ladder/stage4_subgraph.py) |
+| 5 | a **battle** — both arms scored on the same cases, against a noise floor | [`stage5_battle.py`](examples/ladder/stage5_battle.py) |
+| 6 | the **diff diagram** neither library can draw | [`stage6_diagrams.py`](examples/ladder/stage6_diagrams.py) |
+| 7 | proof it is a real `Graph` — their `iter()` drives it unchanged | [`stage7_iter.py`](examples/ladder/stage7_iter.py) |
+
+```bash
+uv run python3 -m examples.ladder.stage2_strategies    # any rung
+uv run pytest tests/test_ladder.py -q                  # all of them, asserted
+```
+
 ## Intent, implementation, execution
 
 | Layer | Question |
@@ -137,6 +203,7 @@ uv run python3 docs/probe_builder_features.py     # what the declaration can and
 uv run python3 examples/counter.py
 uv run python3 examples/parallel.py
 uv run python3 examples/subgraph.py
+uv run pytest tests/test_ladder.py -q              # the README's ladder, every rung
 uv run python3 examples/local/extraction.py
 ```
 
