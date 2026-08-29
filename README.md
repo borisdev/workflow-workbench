@@ -138,30 +138,45 @@ See [`examples/subgraph.py`](examples/subgraph.py) for the `naive` / `better` / 
 Use this only when several strategies must satisfy the same graph structure and typed contracts
 before being compared.
 
-## What the declaration can express — measured, 1 of 6
+## What the declaration can express — enumerated, not remembered
 
 `docs/probe_builder_features.py` runs every `GraphBuilder` feature and then asks which a
 `GraphSpec` can declare as DATA, which is the only form `check()` and `diagram()` can read.
 
-| feature | declarable | as |
+`docs/probe_builder_features.py` runs every `GraphBuilder` feature, then asks which a `GraphSpec`
+can declare as DATA — the only form `check()` and `diagram()` can read.
+
+| `GraphBuilder` | declarable | as |
 |---|---|---|
 | `step` | **yes** | `NodeSpec` |
-| `join` — fan-in, combining arrivals | **yes** | `JoinSpec` |
-| `decision` — conditional routing | **yes** | `DecisionSpec` + `EdgeSpec(..., when=T)` |
-| `map` — fan-out over a list | no | |
-| `transform` on an edge | no | |
-| `broadcast` | no | |
+| `join` | **yes** | `JoinSpec` in `joins` |
+| `decision` | **yes** | `DecisionSpec` in `decisions` |
+| `add` / `add_edge` | **yes** | `EdgeSpec` |
+| `match` | partial | the type form is `when=T`; the `matches=` **predicate** form is not |
+| `edge_from` | partial | one source per edge; `edge_from(a, b)` as one call is not |
+| `stream` | no | a streaming step body; `NodeSpec` assumes `(ctx) -> Out` |
+| `node` | no | the `BaseNode` class-based authoring API — an alternative to `step` entirely |
+| `match_node` | no | branch on a `BaseNode` subclass |
+| `add_mapping_edge` | no | fan-out |
 
-All of them **run** — through `build_pydantic_structure()`. But that override makes `edges`
-decorative and `check()` reports reachability as `NOT CHECKED` for the *whole design*, so
-reaching for one un-declarable feature costs the checks on every node around it. That is the
-argument each of these was added on: having a join, or a branch, used to mean giving up
-reachability checking entirely.
+…plus the edge builder: `label` yes, `to` partial (multi-destination is a fork), and `map`,
+`transform`, `broadcast` no.
+
+**6 fully declarable, 2 partial, 4 escape-hatch only.** Everything not declarable runs *only*
+through `build_pydantic_structure()` — which makes `edges` decorative and reports reachability as
+`NOT CHECKED` for the **whole design**, so reaching for one un-declarable feature costs the checks
+on every node around it. That is the argument `JoinSpec` and `DecisionSpec` were added on.
+
+⛔ **The matrix is checked against the real API, not maintained by hand.** An earlier version was
+written from a grep and missed five entries — `stream`, `node`, `match_node`, `add_mapping_edge`,
+and `match(matches=...)` — while reading as a complete inventory of the gaps. The probe now
+introspects `GraphBuilder` and fails if any public method is unclassified, so the next thing
+Pydantic Graph ships turns it red instead of silently widening a gap we describe as closed.
 
 ⚠️ `JoinSpec` and `DecisionSpec` live in `joins` and `decisions`, never in `nodes`. Neither has an
-implementation, so a strategy binds nothing for them — which is what keeps *"a node is a role a
-strategy fills"* true of every element of `nodes`, and what guarantees two arms of a branching
-design route identically.
+implementation, so a strategy binds nothing for them — which keeps *"a node is a role a strategy
+fills"* true of every element of `nodes`, and guarantees two arms of a branching design route
+identically.
 
 ## What it owns, and what it does not
 
