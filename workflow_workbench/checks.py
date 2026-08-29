@@ -13,14 +13,29 @@ import inspect
 from collections.abc import Callable
 from typing import Any
 
-from workflow_workbench.spec import EdgeSpec, NodeSpec, StrategySpec, _End, _Start, is_sentinel
+from workflow_workbench.spec import (
+    EdgeSpec,
+    NodeSpec,
+    StrategySpec,
+    SubgraphBinding,
+    _End,
+    _Start,
+    is_sentinel,
+)
 
 __all__ = ["check_names", "check_reachable", "check_variables", "check_bindings",
-           "check_implementations"]
+           "check_implementations", "check_subgraphs"]
 
 
 def _name(ep: Any) -> str:
     return "START" if isinstance(ep, _Start) else "END" if isinstance(ep, _End) else ep.name
+
+
+def _type_name(t: Any) -> str:
+    """A stable name for a type in a finding. `__name__` misses generic aliases like
+    `list[Fact]`, which have none — and printing `<class ...>` for one and a bare name for the
+    other makes two findings about the same mistake look like two different mistakes."""
+    return getattr(t, "__name__", None) or repr(t)
 
 
 def check_names(nodes: tuple[NodeSpec, ...]) -> list[str]:
@@ -168,13 +183,20 @@ def check_bindings(nodes: tuple[NodeSpec, ...], strategy: StrategySpec) -> list[
 
 
 def check_implementations(strategy: StrategySpec) -> list[str]:
-    """Each bound implementation is callable and takes exactly one positional argument (`ctx`).
+    """Each bound CALLABLE is callable and takes exactly one positional argument (`ctx`).
 
     Caught here rather than inside `GraphBuilder`, so a strategy's fault is reported against the
     strategy instead of surfacing as a runtime error attributed to the engine.
+
+    ⚠️ Subgraph bindings are skipped, NOT rejected. A `SubgraphBinding` is not callable and this
+    function would otherwise report it as one — a finding that names the wrong defect and points
+    at the wrong file. Whether a subgraph fits is a RELATIONAL fact about it and the parent node,
+    so `check_subgraphs`, which is handed the parent, owns it.
     """
     findings: list[str] = []
     for node, impl in strategy.bindings.items():
+        if isinstance(impl, SubgraphBinding):
+            continue
         if not callable(impl):
             findings.append(
                 f"{strategy.name!r} binds {node.name!r} to {impl!r}, which is not callable.")
@@ -192,4 +214,112 @@ def check_implementations(strategy: StrategySpec) -> list[str]:
                 f"{getattr(impl, '__qualname__', impl)}{sig}, which takes {len(positional)} "
                 f"required positional arguments. A pydantic-graph step body takes exactly one "
                 f"(`ctx`).")
+    return findings
+
+
+def _graph_name(graph: Any) -> str:
+    return graph.name or type(graph).__name__
+
+
+def _port_type(parent: Any, node: NodeSpec, side: str) -> tuple[Any, str | None]:
+    """The type crossing one side of `node`'s boundary, and any finding about resolving it.
+
+    ⚠️ START and END are EXCEPTIONS, and they are why this function exists instead of a length
+    check. A node declaring no input variable is idiomatic when it is fed from START —
+
+        increment = NodeSpec("increment", outputs=(count,))
+        EdgeSpec(START, increment)                       # carries the graph's own input_type
+
+    — so rejecting it would force a DESIGN edit in order to add a strategy, which is exactly the
+    thing a stable `NodeSpec` is supposed to make unnecessary. There is a real type available in
+    that case: the parent graph's `input_type`. Use it.
+
+    Returns `(type, None)` when the boundary type is known, or `(None, finding)` when it is not.
+    A `NOT CHECKED` finding is a stated gap and does not block `render()`; anything else does.
+    """
+    if side == "input":
+        declared, fallback = node.inputs, parent.input_type
+        adjacent = [e.source for e in parent.edges if e.target is node]
+        sentinel, sentinel_name, port = _Start, "START", "input_type"
+    else:
+        declared, fallback = node.outputs, parent.output_type
+        adjacent = [e.target for e in parent.edges if e.source is node]
+        sentinel, sentinel_name, port = _End, "END", "output_type"
+
+    if len(declared) == 1:
+        return declared[0].type, None
+
+    if len(declared) > 1:
+        names = ", ".join(v.name for v in declared)
+        return None, (
+            f"node {node.name!r} declares {len(declared)} {side}s ({names}), and a subgraph "
+            f"binding needs ONE — there is no way to say which of them the child graph's "
+            f"{port} should match. Multi-port subgraph boundaries are deliberately out of "
+            f"scope until something needs one.")
+
+    if adjacent and all(isinstance(ep, sentinel) for ep in adjacent):
+        return fallback, None
+
+    return None, (
+        f"NOT CHECKED — node {node.name!r} declares no {side} variable and is not wired to "
+        f"{sentinel_name}, so there is nothing to compare the child graph's {port} against. "
+        f"Declare the variable to get this checked. This is a stated gap, not a pass.")
+
+
+def check_subgraphs(parent: Any, strategy: StrategySpec,
+                    *, ancestry: tuple[tuple[type, int], ...] = ()) -> list[str]:
+    """Every child design used as a node implementation fits the node it is bound to.
+
+    ⚠️ `parent` is typed `Any` on purpose: `graph_spec` imports this module, so this module cannot
+    import `GraphSpec` back without a cycle. It is always a `GraphSpec`.
+
+    Four things must line up, and each has a different failure:
+
+        input_type / output_type   the child's public boundary vs the parent node's contract.
+                                   A mismatch is a wiring bug the parent's own checks cannot see,
+                                   because to them the node is just "bound to something".
+        state_type / deps_type     the child runs on the parent's EXACT objects, so identical
+                                   declared types is not pedantry — it is the precondition that
+                                   makes sharing them safe to state.
+
+    Cycles are NOT checked here. `GraphSpec._check` owns that, so there is exactly one place that
+    decides whether a chain has closed on itself.
+    """
+    findings: list[str] = []
+    declared_nodes = {id(n) for n in parent.nodes}
+
+    for node, binding in strategy.bindings.items():
+        if not isinstance(binding, SubgraphBinding):
+            continue
+        if id(node) not in declared_nodes:
+            continue                    # `check_bindings` already reports this, and better
+        child, child_strategy = binding.graph, binding.strategy
+        where = (f"strategy {strategy.name!r} binds node {node.name!r} to subgraph "
+                 f"{_graph_name(child)}::{child_strategy.name}")
+
+        for side, port, child_type in (("input", "input_type", child.input_type),
+                                       ("output", "output_type", child.output_type)):
+            want, note = _port_type(parent, node, side)
+            if note is not None:
+                findings.append(note if note.startswith("NOT CHECKED") else f"{where}, but {note}")
+                continue
+            if child_type is not want:
+                verb = "accepts" if side == "input" else "produces"
+                findings.append(
+                    f"{where}, but the node {verb} {_type_name(want)} and the child graph "
+                    f"declares {port} {_type_name(child_type)}. A subgraph is a valid "
+                    f"implementation only when its public boundary matches the role it fills.")
+
+        for attr in ("state_type", "deps_type"):
+            mine, theirs = getattr(parent, attr), getattr(child, attr)
+            if theirs is not mine:
+                findings.append(
+                    f"{where}, but the parent declares {attr} {_type_name(mine)} and the child "
+                    f"declares {_type_name(theirs)}. A subgraph runs on the parent's exact "
+                    f"{attr.split('_')[0]} object, so the declared types must be identical — "
+                    f"there is no conversion, and inventing one would make it ambiguous who owns "
+                    f"a mutation.")
+
+        findings += child._check(child_strategy, ancestry=ancestry)
+
     return findings

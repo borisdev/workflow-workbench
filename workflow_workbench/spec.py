@@ -1,9 +1,10 @@
 """The declarative half: nodes, edges, and what fills them in.
 
-    VariableSpec   a named, typed value that may flow along an edge
-    NodeSpec       a semantic role with a typed contract — and no implementation
-    EdgeSpec       source -> target, carrying one named variable
-    StrategySpec   a complete NodeSpec -> implementation mapping
+    VariableSpec     a named, typed value that may flow along an edge
+    NodeSpec         a semantic role with a typed contract — and no implementation
+    EdgeSpec         source -> target, carrying one named variable
+    SubgraphBinding  a whole child design, used as ONE node's implementation
+    StrategySpec     a complete NodeSpec -> implementation mapping
 
 Nothing here imports `pydantic_graph`. A design must be readable, diffable and checkable without
 an engine in the room; the engine appears only in `GraphSpec.render()`.
@@ -12,9 +13,12 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-__all__ = ["SpecError", "VariableSpec", "NodeSpec", "EdgeSpec", "StrategySpec",
+if TYPE_CHECKING:
+    from workflow_workbench.graph_spec import GraphSpec
+
+__all__ = ["SpecError", "VariableSpec", "NodeSpec", "EdgeSpec", "SubgraphBinding", "StrategySpec",
            "START", "END", "Endpoint", "is_sentinel"]
 
 
@@ -165,6 +169,38 @@ def _ep_name(ep: Any) -> str:
 
 
 @dataclass(frozen=True)
+class SubgraphBinding:
+    """A whole child design — `GraphSpec` + `StrategySpec` — used as ONE node's implementation.
+
+    The parent still sees one `NodeSpec` with one node id. Internally that role is filled by
+    another checked design, which stays independently runnable, checkable and diagrammable.
+
+        fancy = StrategySpec("fancy", {extract: SubgraphBinding(VerifiedExtraction(), verified)})
+
+    ⚠️ This is NOT a second execution abstraction, and adding one was the tempting mistake. There
+    is no MultiStep and no nested runner: `graph.render(strategy)` produces an ordinary
+    `pydantic_graph.Graph`, and the parent step body simply `await`s it. Everything that already
+    knows how to run a graph runs this too.
+
+    ⚠️ The child receives the parent's EXACT `state` and `deps` objects, so their declared types
+    must be identical — `checks.check_subgraphs` enforces that. No projection, no field matching,
+    no copying: each of those makes "who owns this mutation" a question the types stop answering,
+    and none of them has a caller yet. An explicit adapter can be added when one does.
+
+    ⚠️ A binding never receives the parent's `GraphBuilder`. That is what makes parent structural
+    drift impossible by construction rather than by review: a strategy can change what a node
+    DOES, and has no way to change what the design IS.
+    """
+
+    graph: GraphSpec
+    strategy: StrategySpec
+
+    def __repr__(self) -> str:
+        name = self.graph.name or type(self.graph).__name__
+        return f"SubgraphBinding({name}::{self.strategy.name})"
+
+
+@dataclass(frozen=True)
 class StrategySpec:
     """A complete NodeSpec -> implementation mapping. One competitor.
 
@@ -173,18 +209,27 @@ class StrategySpec:
     two arms" a question you answer by reading two files, which is the question a battle exists to
     answer for you.
 
-    ⚠️ An implementation is a pydantic-graph step body — `async def f(ctx) -> Out` — taking
-    exactly ONE argument. `checks.check_implementations` verifies that before `render()` builds.
+    An implementation is one of exactly two things:
+
+        a callable          a pydantic-graph step body — `async def f(ctx) -> Out`, ONE argument.
+                            `checks.check_implementations` verifies that before `render()` builds.
+        a SubgraphBinding   a complete child design filling this one role.
+
+    ⚠️ Both are checked, but by different functions, because their faults are different kinds of
+    fault. A callable's is local — wrong shape, not callable. A subgraph's is RELATIONAL: whether
+    it fits depends on the parent node it is bound to, which a strategy alone cannot know. So
+    `check_implementations` skips subgraphs and `check_subgraphs` (which is handed the parent)
+    owns them.
     """
 
     name: str
-    bindings: Mapping[NodeSpec, Callable[..., Any]] = field(default_factory=dict)
+    bindings: Mapping[NodeSpec, Callable[..., Any] | SubgraphBinding] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.name:
             raise SpecError("a StrategySpec needs a name — it is what its numbers are filed under")
 
-    def __getitem__(self, node: NodeSpec) -> Callable[..., Any]:
+    def __getitem__(self, node: NodeSpec) -> Callable[..., Any] | SubgraphBinding:
         return self.bindings[node]
 
     def __repr__(self) -> str:

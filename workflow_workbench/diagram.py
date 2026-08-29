@@ -16,12 +16,29 @@ from __future__ import annotations
 
 from typing import Any
 
-from workflow_workbench.spec import EdgeSpec, NodeSpec, StrategySpec, _End, _Start, is_sentinel
+from workflow_workbench.spec import (
+    EdgeSpec,
+    NodeSpec,
+    StrategySpec,
+    SubgraphBinding,
+    _End,
+    _Start,
+    is_sentinel,
+)
 
 __all__ = ["diagram", "diff_diagram", "impl_name"]
 
 
 def impl_name(impl: Any) -> str:
+    """What to write under a node: a function's name, or a collapsed child as `graph::strategy`.
+
+    ⚠️ A subgraph is named at the parent level and NOT flattened into it. Splicing the child's
+    nodes into the parent picture would make two arms of one design draw different topologies,
+    which is precisely the alignment `node_id=node.name` exists to protect. The child's internals
+    are one `child.diagram(child_strategy)` away, drawn as what they are: their own design.
+    """
+    if isinstance(impl, SubgraphBinding):
+        return f"{impl.graph.name or type(impl.graph).__name__}::{impl.strategy.name}"
     return getattr(impl, "__qualname__", None) or getattr(impl, "__name__", None) or repr(impl)
 
 

@@ -196,6 +196,57 @@ def _p6():
     return f"builder methods {sorted(sigs)}; edge builder exposes {sorted(edge_meths)}"
 
 
+# ── 7. a graph run INSIDE a step body, on the caller's own state object ──────────────────────
+@probe("7. nested graph.run() inside a step body, sharing the outer state object")
+def _p7():
+    """The claim `SubgraphBinding` rests on, and the one a reading cannot settle.
+
+    Two things at once: that `await inner.run(...)` works from inside a step of an outer graph
+    (`run_sync` would deadlock on the already-running loop), and that passing the outer `state`
+    through means the inner steps mutate THE SAME OBJECT — not a copy that silently diverges.
+    """
+    @dataclass
+    class S:
+        calls: list[str] = field(default_factory=list)
+
+    @dataclass
+    class D:
+        prefix: str = ""
+
+    def inner_graph():
+        g = GraphBuilder(name="p7::inner", state_type=S, deps_type=D,
+                         input_type=str, output_type=str)
+
+        async def a(ctx) -> str:
+            ctx.state.calls.append("inner_a")
+            return ctx.inputs.strip()
+
+        async def b(ctx) -> str:
+            ctx.state.calls.append("inner_b")
+            return f"{ctx.deps.prefix}{ctx.inputs.upper()}"
+        na, nb = g.step(a, node_id="a"), g.step(b, node_id="b")
+        g.add(g.edge_from(g.start_node).to(na), g.edge_from(na).to(nb),
+              g.edge_from(nb).to(g.end_node))
+        return g.build()
+
+    inner = inner_graph()
+    outer = GraphBuilder(name="p7::outer", state_type=S, deps_type=D,
+                         input_type=str, output_type=str)
+
+    async def wrap(ctx) -> str:
+        return await inner.run(inputs=ctx.inputs, state=ctx.state, deps=ctx.deps)
+    n = outer.step(wrap, node_id="only")
+    outer.add(outer.edge_from(outer.start_node).to(n), outer.edge_from(n).to(outer.end_node))
+
+    state = S()
+    got = outer.build().run_sync(inputs=" hi ", state=state, deps=D(prefix="p:"))
+    assert got == "p:HI", got
+    assert state.calls == ["inner_a", "inner_b"], state.calls
+    assert sorted(outer.build().nodes) == ["__end__", "__start__", "only"]
+    return (f"inner ran {state.calls} on the OUTER state object; "
+            f"outer node ids stayed {sorted(outer.build().nodes)}")
+
+
 for name, ok, note in results:
     print(f"{'PASS' if ok else 'FAIL'}  {name}")
     if note:

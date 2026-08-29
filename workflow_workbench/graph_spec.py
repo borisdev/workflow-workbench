@@ -19,6 +19,7 @@ from workflow_workbench.spec import (
     NodeSpec,
     SpecError,
     StrategySpec,
+    SubgraphBinding,
     _End,
     _Start,
     is_sentinel,
@@ -65,7 +66,32 @@ class GraphSpec:
 
         ⚠️ One method, not two. There is no "check the design" / "check the strategy" split
         because the no-strategy case needs no placeholder graph — the declaration is already data.
+
+        Recursion into subgraph bindings lives in `_check`, so nested designs can carry an
+        ancestry path without that bookkeeping showing up in the public signature.
         """
+        return self._check(strategy, ancestry=())
+
+    def _check(self, strategy: StrategySpec | None,
+               *, ancestry: tuple[tuple[type, int], ...]) -> list[str]:
+        """`check()`, plus the path of (design, strategy) pairs already open above this one.
+
+        ⚠️ This is the ONE place a cycle is detected. `check_subgraphs` deliberately does not
+        also check — two owners of one rule is how a chain ends up either reported twice or, worse,
+        reported by whichever ran first with the other's message.
+
+        ⚠️ `id(strategy)` is safe as an identity key ONLY because every strategy in a chain is
+        reachable from the root strategy's bindings for the whole walk, so none can be collected
+        and have its id reused underneath us.
+        """
+        key = (type(self), id(strategy)) if strategy is not None else None
+        if key is not None and key in ancestry:
+            return [
+                f"recursive subgraph binding: {self.name or type(self).__name__!r} with strategy "
+                f"{strategy.name!r} appears inside its own subgraph chain. Rendering it would "
+                f"build child graphs until the stack ran out — a design cannot implement one of "
+                f"its own nodes with itself."]
+
         findings = list(checks.check_names(self.nodes))
         findings += checks.check_variables(self.nodes, self.edges)
         if self._overrides_structure():
@@ -78,6 +104,7 @@ class GraphSpec:
         if strategy is not None:
             findings += checks.check_bindings(self.nodes, strategy)
             findings += checks.check_implementations(strategy)
+            findings += checks.check_subgraphs(self, strategy, ancestry=(*ancestry, key))
         return findings
 
     def _overrides_structure(self) -> bool:
@@ -119,10 +146,41 @@ class GraphSpec:
         # node identity would belong to the STRATEGY rather than the DESIGN — two arms of one
         # design get disjoint node sets and a comparison has nothing to align on. Measured both
         # ways against pydantic-graph 2.35.1 in `docs/probe_api.py` (probes 5 and 5b).
-        built = {node: g.step(strategy[node], node_id=node.name, label=node.name)
+        built = {node: g.step(self._step_body(node, strategy[node]),
+                              node_id=node.name, label=node.name)
                  for node in self.nodes}
         self.build_pydantic_structure(g, built)
         return g.build()
+
+    def _step_body(self, node: NodeSpec, binding: Any) -> Any:
+        """One binding -> one native pydantic-graph step body.
+
+        A callable is already one, and passes through untouched.
+
+        A `SubgraphBinding` renders its own real `Graph` once, here, and is wrapped in a single
+        async step body. So the parent keeps ONE node id for the role while the child stays a
+        first-class design — independently runnable, checkable and diagrammable.
+
+        ⚠️ The child gets the parent's exact `state` and `deps` objects, which is why
+        `check_subgraphs` demands identical declared types. `.run()` and not `.run_sync()`: we are
+        already inside a running loop, and `run_sync` says so by deadlocking.
+
+        ⚠️ `binding` never sees `g`. A strategy can change what a node DOES and has no way to
+        change what the design IS — that is structural drift prevented by construction rather than
+        by review.
+        """
+        if not isinstance(binding, SubgraphBinding):
+            return binding
+
+        child = binding.graph.render(binding.strategy)
+
+        async def run_subgraph(ctx: Any) -> Any:
+            return await child.run(inputs=ctx.inputs, state=ctx.state, deps=ctx.deps)
+
+        # Named, so a traceback from inside the child says which parent role it was filling.
+        run_subgraph.__name__ = f"{node.name}__subgraph"
+        run_subgraph.__qualname__ = f"{type(self).__name__}.{node.name}__subgraph"
+        return run_subgraph
 
     def render(self, strategy: StrategySpec) -> Any:
         """Check, then compile to a real `pydantic_graph.Graph`.

@@ -21,7 +21,7 @@ from typing import Any
 
 from workflow_workbench.diagram import impl_name
 from workflow_workbench.graph_spec import GraphSpec
-from workflow_workbench.spec import StrategySpec, is_sentinel
+from workflow_workbench.spec import StrategySpec, SubgraphBinding, is_sentinel
 
 __all__ = ["spec_payload", "build_app", "serve"]
 
@@ -38,7 +38,25 @@ def _endpoint_id(ep: Any) -> str:
 def _source_of(impl: Any) -> dict[str, Any]:
     """Where an implementation lives, and its body. `.claude/rules/checks.md`: show the thing, do
     not describe it — a strategy table that names `cite_medline_kg` without showing what it calls
-    is asking to be believed."""
+    is asking to be believed.
+
+    ⚠️ A `SubgraphBinding` has no source of its own — it is an instance, and `inspect.getsource`
+    raises `TypeError` on one. Left to the generic path below that exception is caught and the
+    panel renders EMPTY, which reads as "this stage does nothing" rather than "this stage is a
+    whole child design". So show the child: its class's location, and its own diagram."""
+    if isinstance(impl, SubgraphBinding):
+        child = impl.graph
+        name = child.name or type(child).__name__
+        try:
+            file = inspect.getsourcefile(type(child)) or ""
+            line = inspect.getsourcelines(type(child))[1]
+        except (OSError, TypeError):
+            file, line = "", 0
+        code = (f"%% {name}::{impl.strategy.name} — this stage is implemented by a child graph, "
+                f"collapsed to one node here. Its own design:\n"
+                f"{child.diagram(impl.strategy)}")
+        return {"file": file, "line": line, "code": code}
+
     try:
         src = inspect.getsource(impl)
     except (OSError, TypeError):

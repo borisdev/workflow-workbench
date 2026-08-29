@@ -1,7 +1,8 @@
 """workflow_workbench — one Pydantic graph design, many competing strategies.
 
-    GraphSpec      the design: nodes + edges, as DATA
-    StrategySpec   one complete set of implementations for it
+    GraphSpec        the design: nodes + edges, as DATA
+    StrategySpec     one complete set of implementations for it
+    SubgraphBinding  a whole child design, used as ONE node's implementation
     spec.render(strategy) -> a real pydantic_graph.Graph
 
 `evals` is imported separately (`from workflow_workbench.evals import eval_battle`) so that `render()`
@@ -12,6 +13,7 @@ from workflow_workbench.checks import (
     check_implementations,
     check_names,
     check_reachable,
+    check_subgraphs,
     check_variables,
 )
 from workflow_workbench.diagram import diagram, diff_diagram
@@ -23,13 +25,15 @@ from workflow_workbench.spec import (
     NodeSpec,
     SpecError,
     StrategySpec,
+    SubgraphBinding,
     VariableSpec,
 )
 
 __all__ = [
-    "GraphSpec", "NodeSpec", "EdgeSpec", "VariableSpec", "StrategySpec", "SpecError",
+    "GraphSpec", "NodeSpec", "EdgeSpec", "VariableSpec", "StrategySpec", "SubgraphBinding",
+    "SpecError",
     "START", "END",
     "check_names", "check_reachable", "check_variables", "check_bindings",
-    "check_implementations",
+    "check_implementations", "check_subgraphs",
     "diagram", "diff_diagram",
 ]

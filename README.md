@@ -27,6 +27,41 @@ graph = Counter().render(modest)         # a real pydantic_graph.Graph
 eval_battle(Counter(), modest, aggressive, dataset)
 ```
 
+## Intent, implementation, execution
+
+| Layer | Question |
+|---|---|
+| Problem | What outcome is needed? |
+| Specification | What must a valid workflow contain and guarantee? |
+| Implementation | How does each node fulfil its role? |
+| Execution | How does Pydantic Graph run it? |
+
+`GraphSpec` is the inspectable design. `StrategySpec` binds it to native Pydantic Graph step
+implementations. Execution stays Pydantic Graph's.
+
+## One node role, a step or a whole subgraph
+
+A `NodeSpec` keeps a role's identity and typed boundary stable. A strategy fills it with one
+callable:
+
+```python
+better = StrategySpec("better", {extract: better_extract})
+```
+
+…or with a complete child design:
+
+```python
+fancy = StrategySpec("fancy", {extract: SubgraphBinding(VerifiedExtraction(), verified)})
+```
+
+The child must match the node's input/output contract and share the parent's exact `state_type`
+and `deps_type` — it runs on the parent's actual objects. It stays independently runnable and
+checkable, and the parent keeps **one** node id either way, which is what a battle aligns on.
+Where a node is wired straight to `START`/`END` and declares no variable, the graph's own
+`input_type`/`output_type` is what the child is checked against.
+
+See [`examples/subgraph.py`](examples/subgraph.py) for the `naive` / `better` / `fancy` comparison.
+
 ## Do not use this library if…
 
 - you have **one** graph with one implementation per node → use **Pydantic Graph** directly
@@ -47,6 +82,9 @@ no `EvalHarness`.
 It is a **strategy layer over Pydantic Graph**, not a new general workflow framework.
 
 ## The three things it adds
+
+Most workflow tools show one executable route. This one keeps the design fixed and shows which
+implementation choices vary between competing routes.
 
 **1. Node identity belongs to the DESIGN, not the implementation.** Without an explicit `node_id`,
 pydantic-graph names a node after the bound function — so two arms of one design get disjoint node
@@ -82,9 +120,17 @@ uv run python3 docs/probe_api.py                  # every claim above, against t
 uv run python3 docs/probe_parallel_and_evals.py
 uv run python3 examples/counter.py
 uv run python3 examples/parallel.py
+uv run python3 examples/subgraph.py
 uv run python3 examples/local/extraction.py
 ```
 
 The browser tests run the page in Chromium at a phone viewport. They are non-vacuous by
 construction: one unbalanced brace in the renderer turns 12 of 13 red, and a corrupt island bundle
 turns 13 of 14 red while the `?plain=1` fallback keeps passing.
+
+## Related Pydantic Graph discussions
+
+A downstream design related to community requests for
+[reusable/extensible nodes](https://github.com/pydantic/pydantic-ai/issues/798) and
+[reusable subgraphs](https://github.com/pydantic/pydantic-ai/issues/3901). It is a complementary
+layer over native Pydantic Graph, not a proposal to change it.
