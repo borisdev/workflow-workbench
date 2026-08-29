@@ -10,6 +10,7 @@ stays usable without an evaluation framework installed.
 """
 from workflow_workbench.checks import (
     check_bindings,
+    check_decisions,
     check_implementations,
     check_names,
     check_reachable,
@@ -22,6 +23,7 @@ from workflow_workbench.graph_spec import GraphSpec
 from workflow_workbench.spec import (
     END,
     START,
+    DecisionSpec,
     EdgeSpec,
     JoinSpec,
     NodeSpec,
@@ -32,11 +34,12 @@ from workflow_workbench.spec import (
 )
 
 __all__ = [
-    "GraphSpec", "NodeSpec", "EdgeSpec", "JoinSpec", "VariableSpec", "StrategySpec",
+    "GraphSpec", "NodeSpec", "EdgeSpec", "JoinSpec", "DecisionSpec", "VariableSpec",
+    "StrategySpec",
     "SubgraphBinding",
     "SpecError",
     "START", "END",
     "check_names", "check_reachable", "check_variables", "check_bindings",
-    "check_implementations", "check_subgraphs", "check_step_arity",
+    "check_implementations", "check_subgraphs", "check_step_arity", "check_decisions",
     "diagram", "diff_diagram",
 ]

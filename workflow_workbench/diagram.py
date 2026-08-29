@@ -17,6 +17,7 @@ from __future__ import annotations
 from typing import Any
 
 from workflow_workbench.spec import (
+    DecisionSpec,
     EdgeSpec,
     JoinSpec,
     NodeSpec,
@@ -41,6 +42,19 @@ def impl_name(impl: Any) -> str:
     if isinstance(impl, SubgraphBinding):
         return f"{impl.graph.name or type(impl.graph).__name__}::{impl.strategy.name}"
     return getattr(impl, "__qualname__", None) or getattr(impl, "__name__", None) or repr(impl)
+
+
+def _arrow(e: EdgeSpec) -> str:
+    """The edge's label. For a BRANCH that is the type it matches, not the variable it carries.
+
+    ⚠️ Every branch of a decision usually carries the same variable, so labelling them by variable
+    draws two identical arrows out of one router — a picture that hides the only thing a reader
+    is looking at it to learn.
+    """
+    if e.when is not None:
+        return f"-- {getattr(e.when, '__name__', e.when)} -->"
+    lbl = e.label or (e.variable.name if e.variable else "")
+    return f"-- {lbl} -->" if lbl else "-->"
 
 
 def _node_id(ep: Any) -> str:
@@ -71,6 +85,12 @@ def diagram(nodes: tuple[NodeSpec, ...], edges: tuple[EdgeSpec, ...], *,
     out = [f"%% {title}" if title else "%% workflow-workbench", "flowchart TD"]
     out.append("  START([START])")
     for n in nodes:
+        if isinstance(n, DecisionSpec):
+            # A rhombus, because a router is not a stage: nothing happens here, the value only
+            # turns. Drawing it like a step would invite someone to look for its implementation.
+            note = f"<br/><i>{n.note}</i>" if n.note else ""
+            out.append(f"  {_node_id(n)}{{{{\"{n.name}{note}\"}}}}")
+            continue
         # ⚠️ A join is drawn as a distinct shape and NEVER annotated with an implementation:
         # it has none to bind, and printing a blank line under it would read as "unbound".
         if isinstance(n, JoinSpec):
@@ -83,9 +103,7 @@ def diagram(nodes: tuple[NodeSpec, ...], edges: tuple[EdgeSpec, ...], *,
         out.append(f"  {_node_id(n)}[\"{label}\"]")
     out.append("  END([END])")
     for e in edges:
-        lbl = e.label or (e.variable.name if e.variable else "")
-        arrow = f"-- {lbl} -->" if lbl else "-->"
-        out.append(f"  {_node_id(e.source)} {arrow} {_node_id(e.target)}")
+        out.append(f"  {_node_id(e.source)} {_arrow(e)} {_node_id(e.target)}")
     return "\n".join(out)
 
 
@@ -106,6 +124,10 @@ def diff_diagram(nodes: tuple[NodeSpec, ...], edges: tuple[EdgeSpec, ...],
     out = [f"%% {title or 'strategy diff'}: {a.name} vs {b.name}", "flowchart TD"]
     out.append("  START([START])")
     for n in nodes:
+        if isinstance(n, DecisionSpec):
+            note = f"<br/><i>{n.note}</i>" if n.note else ""
+            out.append(f"  {_node_id(n)}{{{{\"{n.name}{note}\"}}}}:::shared")
+            continue
         if isinstance(n, JoinSpec):
             reducer = getattr(n.reducer, "__name__", str(n.reducer))
             out.append(f"  {_node_id(n)}[/\"{n.name}<br/><i>join: {reducer}</i>\"/]:::shared")
@@ -119,9 +141,7 @@ def diff_diagram(nodes: tuple[NodeSpec, ...], edges: tuple[EdgeSpec, ...],
             out.append(f"  {_node_id(n)}[\"{n.name}{sub}\"]:::shared")
     out.append("  END([END])")
     for e in edges:
-        lbl = e.label or (e.variable.name if e.variable else "")
-        arrow = f"-- {lbl} -->" if lbl else "-->"
-        out.append(f"  {_node_id(e.source)} {arrow} {_node_id(e.target)}")
+        out.append(f"  {_node_id(e.source)} {_arrow(e)} {_node_id(e.target)}")
     out.append("  classDef varies fill:#fde68a,stroke:#b45309,stroke-width:3px;")
     out.append("  classDef shared fill:#f1f5f9,stroke:#94a3b8;")
     return "\n".join(out)

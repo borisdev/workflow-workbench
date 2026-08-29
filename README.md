@@ -88,6 +88,7 @@ paying on rung 2, when `pick` has two implementations and something has to hold 
 | 6 | the **diff diagram** neither library can draw | [`stage6_diagrams.py`](examples/ladder/stage6_diagrams.py) |
 | 7 | proof it is a real `Graph` — their `iter()` drives it unchanged | [`stage7_iter.py`](examples/ladder/stage7_iter.py) |
 | 8 | **a declared join** — two producers into one consumer, combined rather than dropped | [`stage8_join.py`](examples/ladder/stage8_join.py) |
+| 9 | **conditional routing** — branches on the type of the answer, converging again | [`stage9_decision.py`](examples/ladder/stage9_decision.py) |
 
 ```bash
 uv run python3 -m examples.ladder.stage2_strategies    # any rung
@@ -146,18 +147,21 @@ before being compared.
 |---|---|---|
 | `step` | **yes** | `NodeSpec` |
 | `join` — fan-in, combining arrivals | **yes** | `JoinSpec` |
+| `decision` — conditional routing | **yes** | `DecisionSpec` + `EdgeSpec(..., when=T)` |
 | `map` — fan-out over a list | no | |
 | `transform` on an edge | no | |
 | `broadcast` | no | |
-| `decision` — conditional routing | no | |
 
 All of them **run** — through `build_pydantic_structure()`. But that override makes `edges`
 decorative and `check()` reports reachability as `NOT CHECKED` for the *whole design*, so
-reaching for one un-declarable feature costs the checks on every node around it. That was the
-argument for `JoinSpec`: having a join used to mean giving up reachability checking entirely.
+reaching for one un-declarable feature costs the checks on every node around it. That is the
+argument each of these was added on: having a join, or a branch, used to mean giving up
+reachability checking entirely.
 
-`decision` is the consequential one still missing — it is conditional routing, and nothing here
-can see it.
+⚠️ `JoinSpec` and `DecisionSpec` live in `joins` and `decisions`, never in `nodes`. Neither has an
+implementation, so a strategy binds nothing for them — which is what keeps *"a node is a role a
+strategy fills"* true of every element of `nodes`, and what guarantees two arms of a branching
+design route identically.
 
 ## What it owns, and what it does not
 

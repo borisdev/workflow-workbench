@@ -190,6 +190,7 @@ def test_rung7_a_subgraph_stays_out_of_the_parents_event_stream() -> None:
 @pytest.mark.parametrize("module", [
     "their_hello", "stage1_bare", "stage2_strategies", "stage3_new_node",
     "stage4_subgraph", "stage5_battle", "stage6_diagrams", "stage7_iter", "stage8_join",
+    "stage9_decision",
 ])
 def test_every_rung_runs_as_a_script(module: str) -> None:
     """Weakest test here, and it earns its place: the README prints these commands, and a reader
@@ -296,3 +297,133 @@ def test_rung8_a_mutable_seed_must_be_a_factory() -> None:
 
     JoinSpec("fine", reduce_list_append, initial_factory=list)
     JoinSpec("also_fine", reduce_list_append, initial=0)
+
+
+# ── rung 9: conditional routing ─────────────────────────────────────────────────────────────
+
+def test_rung9_each_branch_routes_and_only_one_fires() -> None:
+    from examples.ladder.stage9_decision import Log, Triage, careful
+
+    spec = Triage()
+    assert spec.check(careful) == []
+    graph = spec.render(careful)
+
+    urgent_log = Log()
+    assert "seek care now" in graph.run_sync(inputs="chest pain now", state=urgent_log)
+    assert urgent_log.steps == ["intake", "escalate", "report"]
+
+    routine_log = Log()
+    assert "looked it up" in graph.run_sync(inputs="dry elbow", state=routine_log)
+    assert routine_log.steps == ["intake", "research", "report"]
+
+
+def test_rung9_converging_branches_are_not_a_fan_in() -> None:
+    """⛔ The regression `check_step_arity`'s own docstring predicted.
+
+    `report` has two incoming edges. If the exclusivity analysis were missing, every branching
+    design would be reported as the fan-in defect rung 8 exists to catch — and the check would
+    become noise that people learn to ignore, which is worse than not having it.
+
+    Measured, not reasoned: `report` runs ONCE on each input.
+    """
+    from examples.ladder.stage9_decision import Log, Triage, careful, report
+
+    spec = Triage()
+    incoming = [e for e in spec.edges if e.target is report]
+    assert len(incoming) == 2, "the test's premise is gone; report is no longer a convergence"
+
+    assert spec.check(careful) == [], "a converging branch was reported as a fan-in"
+
+    for text in ("chest pain now", "dry elbow"):
+        log = Log()
+        spec.render(careful).run_sync(inputs=text, state=log)
+        assert log.steps.count("report") == 1, log.steps
+
+
+def test_rung9_a_real_fan_in_is_still_caught_alongside_a_decision() -> None:
+    """The exclusivity analysis must not become a blanket amnesty for branching designs."""
+    from examples.ladder.stage9_decision import (
+        Log, Triage, complaint, handled, intake, report, report_out, route, verdict)
+    from workflow_workbench import EdgeSpec, NodeSpec
+
+    sneak = NodeSpec("sneak", inputs=(verdict,), outputs=(handled,))
+
+    class RealFanIn(Triage):
+        name = "real_fan_in"
+        nodes = (*Triage.nodes, sneak)
+        edges = (*Triage.edges,
+                 EdgeSpec(intake, sneak, verdict),      # NOT behind the decision
+                 EdgeSpec(sneak, report, handled))      # a third, unconditional arrival
+
+    findings = RealFanIn().check()
+    assert any("invoked once PER EDGE" in f for f in findings), findings
+
+
+def test_rung9_a_decision_binds_nothing() -> None:
+    from examples.ladder.stage9_decision import Triage, alarmist, careful, route
+
+    assert route not in careful.bindings and route not in alarmist.bindings
+    assert "route" not in Triage().varies(careful, alarmist)
+    assert Triage().varies(careful, alarmist) == {
+        "intake": ("triage_keywords", "triage_everything_urgent")}
+
+
+def test_rung9_a_branch_without_a_condition_is_refused() -> None:
+    from examples.ladder.stage9_decision import (
+        complaint, escalate, handled, intake, report, report_out, research, route, verdict)
+    from examples.ladder.stage9_decision import Triage, Urgent, careful
+    from workflow_workbench import END, START, EdgeSpec
+
+    class NoWhen(Triage):
+        name = "no_when"
+        edges = (EdgeSpec(START, intake, complaint),
+                 EdgeSpec(intake, route, verdict),
+                 EdgeSpec(route, escalate, verdict),
+                 EdgeSpec(route, research, verdict, when=Urgent),
+                 EdgeSpec(escalate, report, handled),
+                 EdgeSpec(research, report, handled),
+                 EdgeSpec(report, END, report_out))
+
+    with pytest.raises(SpecError, match="without a `when=` type"):
+        NoWhen().render(careful)
+
+
+def test_rung9_a_condition_on_an_ordinary_edge_is_refused() -> None:
+    """⚠️ The nastier of the two: it would be SILENTLY IGNORED. The declaration reads as
+    conditional and the graph routes unconditionally."""
+    from examples.ladder.stage9_decision import (
+        complaint, escalate, handled, intake, report, report_out, research, route, verdict)
+    from examples.ladder.stage9_decision import Routine, Triage, Urgent, careful
+    from workflow_workbench import END, START, EdgeSpec
+
+    class StrayWhen(Triage):
+        name = "stray_when"
+        edges = (EdgeSpec(START, intake, complaint, when=Urgent),
+                 EdgeSpec(intake, route, verdict),
+                 EdgeSpec(route, escalate, verdict, when=Urgent),
+                 EdgeSpec(route, research, verdict, when=Routine),
+                 EdgeSpec(escalate, report, handled),
+                 EdgeSpec(research, report, handled),
+                 EdgeSpec(report, END, report_out))
+
+    with pytest.raises(SpecError, match="is not a DecisionSpec"):
+        StrayWhen().render(careful)
+
+
+def test_rung9_reachability_runs_through_branches() -> None:
+    """The gain over the escape hatch: before DecisionSpec a branching design could only be built
+    by overriding build_pydantic_structure(), which reports reachability NOT CHECKED for the whole
+    design — so every branching workflow was entirely unchecked."""
+    from examples.ladder.stage9_decision import Triage, careful
+
+    assert not any("NOT CHECKED" in f for f in Triage().check(careful))
+
+
+def test_rung9_the_diagram_labels_branches_by_type_not_variable() -> None:
+    """Both branches carry `verdict`; labelling by variable draws two identical arrows out of the
+    router and hides the only thing the picture is for."""
+    from examples.ladder.stage9_decision import Triage, careful
+
+    out = Triage().diagram(careful)
+    assert "route{{" in out, "a router should not be drawn as a step"
+    assert "-- Urgent -->" in out and "-- Routine -->" in out

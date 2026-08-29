@@ -4,6 +4,7 @@
     NodeSpec         a semantic role with a typed contract — and no implementation
     EdgeSpec         source -> target, carrying one named variable
     JoinSpec         the one node kind that COMBINES several arrivals; no implementation to bind
+    DecisionSpec     routes on the TYPE of the value; its branches are edges carrying `when=`
     SubgraphBinding  a whole child design, used as ONE node's implementation
     StrategySpec     a complete NodeSpec -> implementation mapping
 
@@ -19,8 +20,9 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from workflow_workbench.graph_spec import GraphSpec
 
-__all__ = ["SpecError", "VariableSpec", "NodeSpec", "EdgeSpec", "JoinSpec", "SubgraphBinding",
-           "StrategySpec", "START", "END", "Endpoint", "is_sentinel"]
+__all__ = ["SpecError", "VariableSpec", "NodeSpec", "EdgeSpec", "JoinSpec",
+           "DecisionSpec", "SubgraphBinding", "StrategySpec", "START", "END",
+           "Endpoint", "is_sentinel"]
 
 
 class _Unset:
@@ -157,12 +159,22 @@ class EdgeSpec:
 
     `variable=None` is legal and means "the edge carries whatever the source produced" — the
     ordinary single-output case, where naming it adds nothing to check.
+
+    ⚠️ `when` is what makes this edge a BRANCH of a `DecisionSpec`: it is taken when the routed
+    value is an instance of that type. Only legal on an edge leaving a DecisionSpec, and required
+    on every edge that leaves one — `check_decisions` enforces both, since a branchless decision
+    routes nowhere and a conditionless edge out of one cannot be built.
+
+    ⚠️ The condition lives on the EDGE, not inside the DecisionSpec, on purpose: `edges` stays the
+    single place the topology is written down, so `check_reachable` and `diagram()` keep working
+    on branching designs without knowing decisions exist.
     """
 
-    source: Any                       # NodeSpec | _Start
-    target: Any                       # NodeSpec | _End
+    source: Any                       # NodeSpec | DecisionSpec | _Start
+    target: Any                       # NodeSpec | JoinSpec | DecisionSpec | _End
     variable: VariableSpec | None = None
     label: str = ""
+    when: type | None = None
 
     def __post_init__(self) -> None:
         if isinstance(self.source, _End):
@@ -231,6 +243,45 @@ class JoinSpec:
     def __repr__(self) -> str:
         seed = "initial_factory" if self.initial_factory is not None else f"initial={self.initial!r}"
         return f"JoinSpec({self.name!r}, {getattr(self.reducer, '__name__', self.reducer)}, {seed})"
+
+
+@dataclass(frozen=True, eq=False)
+class DecisionSpec:
+    """A router. Sends the value down one branch, chosen by its TYPE.
+
+        route = DecisionSpec("route", note="urgent or not")
+
+        edges = (EdgeSpec(triage, route, verdict),
+                 EdgeSpec(route, escalate, urgent,  when=Urgent),
+                 EdgeSpec(route, research, routine, when=Routine))
+
+    ⚠️ Like `JoinSpec`, it has NO implementation and lives in `decisions`, not `nodes`. There is no
+    body to write — the routing IS the declaration. A strategy binds nothing for it, so two arms
+    can differ in every step and still be guaranteed to route identically, which is what makes a
+    battle over a branching design mean anything.
+
+    ⚠️ Its absence was costing the most of anything on the capability matrix. Before it, a design
+    that routed conditionally could only be built by overriding `build_pydantic_structure()` —
+    which reports reachability as NOT CHECKED for the whole design. Every branching workflow was
+    therefore entirely unchecked.
+
+    ⚠️ Branches are EXCLUSIVE, and that is measured rather than assumed: a node downstream of two
+    branches runs ONCE, not once per branch. `check_step_arity` has to know it, or it reports
+    every branching design as a fan-in defect.
+    """
+
+    name: str
+    note: str = ""
+    inputs: tuple[VariableSpec, ...] = ()
+    outputs: tuple[VariableSpec, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not self.name:
+            raise SpecError("a DecisionSpec needs a name — it becomes the node id in the graph")
+
+    def __repr__(self) -> str:
+        note = f", {self.note!r}" if self.note else ""
+        return f"DecisionSpec({self.name!r}{note})"
 
 
 @dataclass(frozen=True)

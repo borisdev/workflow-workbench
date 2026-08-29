@@ -14,6 +14,7 @@ from collections.abc import Callable
 from typing import Any
 
 from workflow_workbench.spec import (
+    DecisionSpec,
     EdgeSpec,
     NodeSpec,
     StrategySpec,
@@ -24,7 +25,7 @@ from workflow_workbench.spec import (
 )
 
 __all__ = ["check_names", "check_reachable", "check_variables", "check_bindings",
-           "check_implementations", "check_subgraphs", "check_step_arity"]
+           "check_implementations", "check_subgraphs", "check_step_arity", "check_decisions"]
 
 
 def _name(ep: Any) -> str:
@@ -325,7 +326,89 @@ def check_subgraphs(parent: Any, strategy: StrategySpec,
     return findings
 
 
-def check_step_arity(nodes: tuple[NodeSpec, ...], edges: tuple[EdgeSpec, ...]) -> list[str]:
+def check_decisions(decisions: tuple[DecisionSpec, ...],
+                    edges: tuple[EdgeSpec, ...]) -> list[str]:
+    """`when` appears exactly on the edges leaving a decision, and nowhere else.
+
+    Both directions are real mistakes with different consequences:
+
+        an edge leaving a decision with no `when`     cannot be built — there is no branch to
+                                                      make of it, and `g.match(None)` is not a
+                                                      thing
+        `when` on an ordinary edge                    silently ignored, which is worse: the
+                                                      declaration reads as conditional and the
+                                                      graph routes unconditionally
+        a decision with no branches at all            routes nowhere; everything downstream is
+                                                      unreachable and the value is dropped
+    """
+    findings: list[str] = []
+    declared = {id(d) for d in decisions}
+
+    for d in decisions:
+        branches = [e for e in edges if e.source is d]
+        if not branches:
+            findings.append(
+                f"decision {d.name!r} has no branches — no edge leaves it. It would route nothing "
+                f"and everything it was meant to reach is unreachable.")
+        for e in branches:
+            if e.when is None:
+                findings.append(
+                    f"edge {e!r} leaves decision {d.name!r} without a `when=` type. A branch is "
+                    f"chosen by the type of the routed value; without one there is nothing to "
+                    f"match on and the branch cannot be built.")
+        seen: dict[Any, int] = {}
+        for e in branches:
+            if e.when is not None:
+                seen[e.when] = seen.get(e.when, 0) + 1
+        for typ, n in seen.items():
+            if n > 1:
+                findings.append(
+                    f"decision {d.name!r} has {n} branches matching {_type_name(typ)}. Only the "
+                    f"first can ever be taken; the rest are dead and read as coverage.")
+
+    for e in edges:
+        if e.when is not None and id(e.source) not in declared:
+            findings.append(
+                f"edge {e!r} carries `when={_type_name(e.when)}` but its source is not a "
+                f"DecisionSpec, so the condition is IGNORED — the declaration reads as "
+                f"conditional and the graph routes unconditionally.")
+    return findings
+
+
+def _exclusive_groups(decisions: tuple[DecisionSpec, ...],
+                      edges: tuple[EdgeSpec, ...]) -> list[set[int]]:
+    """For each decision branch, everything reachable from it. Two nodes in DIFFERENT branch sets
+    of the SAME decision cannot both run.
+
+    ⚠️ Measured, not reasoned: a node downstream of two branches is invoked ONCE. Without this,
+    `check_step_arity` reports every branching design as a fan-in defect — the false positive its
+    own docstring predicted, arriving the moment decisions became declarable.
+    """
+    fwd: dict[int, list[Any]] = {}
+    for e in edges:
+        fwd.setdefault(id(e.source), []).append(e.target)
+
+    def reach(start: Any) -> set[int]:
+        seen: set[int] = set()
+        stack = [start]
+        while stack:
+            cur = stack.pop()
+            if id(cur) in seen:
+                continue
+            seen.add(id(cur))
+            stack.extend(fwd.get(id(cur), ()))
+        return seen
+
+    groups: list[set[int]] = []
+    for d in decisions:
+        for e in edges:
+            if e.source is d:
+                groups.append(reach(e.target))
+    return groups
+
+
+def check_step_arity(nodes: tuple[NodeSpec, ...], edges: tuple[EdgeSpec, ...],
+                     *, decisions: tuple[DecisionSpec, ...] = ()) -> list[str]:
     """A step body receives exactly ONE value, so a node cannot consume two inputs at once.
 
     ⚠️ Takes `nodes` ONLY, never joins. A `JoinSpec` exists precisely to receive several arrivals
@@ -361,6 +444,7 @@ def check_step_arity(nodes: tuple[NodeSpec, ...], edges: tuple[EdgeSpec, ...]) -
     declaration in hand — rather than pre-emptively weakening it now.
     """
     findings: list[str] = []
+    groups = _exclusive_groups(decisions, edges)
     incoming: dict[int, list[EdgeSpec]] = {}
     for e in edges:
         if not is_sentinel(e.target):
@@ -376,6 +460,8 @@ def check_step_arity(nodes: tuple[NodeSpec, ...], edges: tuple[EdgeSpec, ...]) -
                 f"and the declaration reads as though it can.")
 
         arrivals = incoming.get(id(n), [])
+        if len(arrivals) > 1 and _mutually_exclusive(arrivals, groups):
+            continue
         if len(arrivals) > 1:
             froms = ", ".join(sorted(_name(e.source) for e in arrivals))
             findings.append(
@@ -385,3 +471,27 @@ def check_step_arity(nodes: tuple[NodeSpec, ...], edges: tuple[EdgeSpec, ...]) -
                 f"the first. If the intent is to combine them, this is a join, not a step.")
 
     return findings
+
+
+def _mutually_exclusive(arrivals: list[EdgeSpec], groups: list[set[int]]) -> bool:
+    """Every arrival sits under a DIFFERENT branch of one decision, so at most one can fire.
+
+    ⚠️ Conservative on purpose: it returns True only when each source lands in a distinct branch
+    group of a single decision. Anything it cannot prove exclusive stays reported, because a
+    missed fan-in is silent data loss and a false alarm is merely annoying.
+    """
+    if not groups:
+        return False
+    sources = [e.source for e in arrivals]
+    for i, gi in enumerate(groups):
+        if not any(id(s) in gi for s in sources):
+            continue
+        # which group does each source belong to, among groups of the same decision?
+        assigned = []
+        for s in sources:
+            hits = [k for k, g in enumerate(groups) if id(s) in g]
+            if not hits:
+                return False
+            assigned.append(hits[0])
+        return len(set(assigned)) == len(sources)
+    return False

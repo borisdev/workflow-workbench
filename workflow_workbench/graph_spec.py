@@ -15,6 +15,7 @@ from pydantic_graph import GraphBuilder
 from workflow_workbench import checks
 from workflow_workbench.diagram import diagram as _diagram, diff_diagram as _diff_diagram
 from workflow_workbench.spec import (
+    DecisionSpec,
     EdgeSpec,
     JoinSpec,
     NodeSpec,
@@ -53,6 +54,10 @@ class GraphSpec:
     """Nodes that COMBINE arrivals. Separate from `nodes` because a strategy binds `nodes` and
     has nothing to bind here — a join carries its own reducer. Keeping them apart is what lets
     "a node is a role a strategy fills" stay true of every element of `nodes`."""
+    decisions: ClassVar[tuple[DecisionSpec, ...]] = ()
+    """Routers. Separate from `nodes` for the same reason as `joins`: there is no implementation
+    to bind, so a strategy has nothing to say about one. Their branches are `edges` carrying
+    `when=`, which keeps the topology in one place."""
     edges: ClassVar[tuple[EdgeSpec, ...]] = ()
     state_type: ClassVar[type] = type(None)
     deps_type: ClassVar[type] = type(None)
@@ -100,10 +105,12 @@ class GraphSpec:
         # ⚠️ `nodes + joins` where the question is "is this a declared ENDPOINT", `nodes` alone
         # where it is "is this a ROLE a strategy fills". Conflating the two is how a join ends up
         # demanding an implementation, or an unreachable join goes unreported.
-        endpoints = (*self.nodes, *self.joins)
+        endpoints = (*self.nodes, *self.joins, *self.decisions)
         findings = list(checks.check_names(endpoints))
         findings += checks.check_variables(endpoints, self.edges)
-        findings += checks.check_step_arity(self.nodes, self.edges)
+        findings += checks.check_decisions(self.decisions, self.edges)
+        findings += checks.check_step_arity(self.nodes, self.edges,
+                                            decisions=self.decisions)
         if self._overrides_structure():
             findings.append(
                 f"NOT CHECKED — {type(self).__name__} overrides build_pydantic_structure(), so its "
@@ -130,6 +137,11 @@ class GraphSpec:
         `check()` reports reachability as NOT CHECKED rather than passing it.
         """
         for e in self.edges:
+            # ⚠️ A branch is NOT an ordinary edge. It is already attached to the Decision object
+            # by `_build` via `g.match(...).to(...)`; adding it again here would wire the target
+            # twice — once conditionally and once unconditionally, which is not a branch at all.
+            if isinstance(e.source, DecisionSpec):
+                continue
             src = g.start_node if isinstance(e.source, _Start) else nodes[e.source]
             dst = g.end_node if isinstance(e.target, _End) else nodes[e.target]
             builder = g.edge_from(src)
@@ -168,6 +180,19 @@ class GraphSpec:
                 built[j] = g.join(j.reducer, initial_factory=j.initial_factory, node_id=j.name)
             else:
                 built[j] = g.join(j.reducer, initial=j.initial, node_id=j.name)
+        # ⚠️ Decisions are assembled AFTER steps and joins, because each branch names a target
+        # that must already exist — and BEFORE the edges are wired, because `d.branch()` returns a
+        # NEW Decision each time. The object other edges point at must be the final one, with
+        # every branch already on it.
+        for dec in self.decisions:
+            node = g.decision(note=dec.note or None, node_id=dec.name)
+            for e in self.edges:
+                if e.source is not dec:
+                    continue
+                target = g.end_node if isinstance(e.target, _End) else built[e.target]
+                node = node.branch(g.match(e.when).to(target))
+            built[dec] = node
+
         self.build_pydantic_structure(g, built)
         return g.build()
 
@@ -221,7 +246,7 @@ class GraphSpec:
 
     def diagram(self, strategy: StrategySpec | None = None) -> str:
         """Mermaid for this design, from the declaration alone — no implementations needed."""
-        return _diagram((*self.nodes, *self.joins), self.edges,
+        return _diagram((*self.nodes, *self.joins, *self.decisions), self.edges,
                         title=self.name or type(self).__name__, strategy=strategy)
 
     def diff_diagram(self, a: StrategySpec, b: StrategySpec) -> str:
@@ -230,7 +255,7 @@ class GraphSpec:
         Has no equivalent in either library: two arms of one design render byte-identical mermaid
         from `Graph.render()`, because the built graph does not retain which strategy produced it.
         """
-        return _diff_diagram((*self.nodes, *self.joins), self.edges, a, b,
+        return _diff_diagram((*self.nodes, *self.joins, *self.decisions), self.edges, a, b,
                              title=self.name or type(self).__name__)
 
     def varies(self, a: StrategySpec, b: StrategySpec) -> dict[str, tuple[str, str]]:
