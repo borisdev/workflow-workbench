@@ -94,6 +94,7 @@ class GraphSpec:
 
         findings = list(checks.check_names(self.nodes))
         findings += checks.check_variables(self.nodes, self.edges)
+        findings += checks.check_step_arity(self.nodes, self.edges)
         if self._overrides_structure():
             findings.append(
                 f"NOT CHECKED — {type(self).__name__} overrides build_pydantic_structure(), so its "

@@ -13,6 +13,7 @@ from workflow_workbench.checks import (
     check_implementations,
     check_names,
     check_reachable,
+    check_step_arity,
     check_subgraphs,
     check_variables,
 )
@@ -34,6 +35,6 @@ __all__ = [
     "SpecError",
     "START", "END",
     "check_names", "check_reachable", "check_variables", "check_bindings",
-    "check_implementations", "check_subgraphs",
+    "check_implementations", "check_subgraphs", "check_step_arity",
     "diagram", "diff_diagram",
 ]

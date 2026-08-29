@@ -384,3 +384,54 @@ def test_devserver_payload_shows_the_child_design_not_a_blank_panel() -> None:
     assert binding["code"]                                   # not the silent empty string
     assert "first" in binding["code"] and "second" in binding["code"]
     assert binding["file"].endswith("test_subgraph.py")
+
+
+# ── fan-in: the shape that ran green and dropped a result ───────────────────────────────────
+
+left = VariableSpec("left", str)
+right = VariableSpec("right", str)
+
+split_a = NodeSpec("split_a", inputs=(text,), outputs=(left,))
+split_b = NodeSpec("split_b", inputs=(text,), outputs=(right,))
+merge = NodeSpec("merge", inputs=(left, right), outputs=(text,))
+
+
+class FanIn(GraphSpec):
+    """`plans.py::MergeCitations` in miniature: two producers, one consumer declared to take both."""
+
+    name = "fan_in"
+    state_type, deps_type = State, Deps
+    input_type, output_type = str, str
+    nodes = (split_a, split_b, merge)
+    edges = (EdgeSpec(START, split_a, text),
+             EdgeSpec(START, split_b, text),
+             EdgeSpec(split_a, merge, left),
+             EdgeSpec(split_b, merge, right),
+             EdgeSpec(merge, END, text))
+
+
+def test_a_node_that_cannot_receive_both_its_inputs_is_refused() -> None:
+    """⛔ Measured before this check existed: it rendered, ran, called `merge` TWICE with one
+    value each, and returned one result while discarding the other. `check()` said clean.
+
+    Every other check passes on it — both variables are declared on both ends, everything
+    reaches END. Only arity sees it.
+    """
+    async def one(ctx) -> str:
+        return ctx.inputs
+
+    strategy = StrategySpec("s", {split_a: one, split_b: one, merge: one})
+    findings = FanIn().check(strategy)
+
+    assert len(findings) == 2, findings
+    assert "declares 2 inputs" in findings[0]
+    assert "invoked once PER EDGE" in findings[1]
+
+    with pytest.raises(SpecError, match="declares 2 inputs"):
+        FanIn().render(strategy)
+
+
+def test_a_linear_chain_is_not_flagged() -> None:
+    """The check must not fire on the ordinary shape, or it is noise nobody reads."""
+    assert Parent().check(direct_strategy) == []
+    assert Child().check(child_strategy) == []

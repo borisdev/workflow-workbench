@@ -24,7 +24,7 @@ from workflow_workbench.spec import (
 )
 
 __all__ = ["check_names", "check_reachable", "check_variables", "check_bindings",
-           "check_implementations", "check_subgraphs"]
+           "check_implementations", "check_subgraphs", "check_step_arity"]
 
 
 def _name(ep: Any) -> str:
@@ -321,5 +321,65 @@ def check_subgraphs(parent: Any, strategy: StrategySpec,
                     f"a mutation.")
 
         findings += child._check(child_strategy, ancestry=ancestry)
+
+    return findings
+
+
+def check_step_arity(nodes: tuple[NodeSpec, ...], edges: tuple[EdgeSpec, ...]) -> list[str]:
+    """A step body receives exactly ONE value, so a node cannot consume two inputs at once.
+
+    ⛔ This is the fan-in defect, and it is silent in every other check. Measured against
+    pydantic-graph 2.35.1 with `docs/probe_builder_features.py`'s shape:
+
+        merge = NodeSpec("merge", inputs=(left, right), outputs=(out,))
+        EdgeSpec(step_a, merge, left)        # step_a produced 2
+        EdgeSpec(step_b, merge, right)       # step_b produced 3
+
+        merge was called 2 time(s), with [3, 2]
+        run(1) -> 'got 3'                    <- step_a's result silently discarded
+
+    Every existing check passes on that. `check_variables` is happy — both variables are declared
+    on both ends. `check_reachable` is happy — everything reaches END. The declaration READS as
+    "merge combines left and right", renders green, runs, and drops one of them.
+
+    ⚠️ The two findings below are different mistakes and are reported separately:
+
+        declaring >1 input      the contract is unsatisfiable by a step, whatever is wired to it
+        >1 incoming edge        the node is INVOKED once per edge, and the results do not merge
+
+    The fix for either is a join — `g.join(reducer, initial=...)` takes
+    `(current, input) -> current`, which is the shape that can actually combine two arrivals. A
+    join is not a step and has no implementation to bind, so it belongs in `edges` and not in
+    `nodes`; `examples/parallel.py` shows the form.
+
+    ⚠️ Scope, stated because it will need revisiting: within what a `GraphSpec` can DECLARE today
+    every incoming edge fires, so >1 always means >1 invocation. Once `decision` becomes
+    declarable, a node downstream of two mutually exclusive branches would be invoked once and
+    this second finding would become a false positive. Narrow it then — with the branch
+    declaration in hand — rather than pre-emptively weakening it now.
+    """
+    findings: list[str] = []
+    incoming: dict[int, list[EdgeSpec]] = {}
+    for e in edges:
+        if not is_sentinel(e.target):
+            incoming.setdefault(id(e.target), []).append(e)
+
+    for n in nodes:
+        if len(n.inputs) > 1:
+            names = ", ".join(v.name for v in n.inputs)
+            findings.append(
+                f"node {n.name!r} declares {len(n.inputs)} inputs ({names}), but a pydantic-graph "
+                f"step body receives exactly one value — there is no invocation in which both "
+                f"arrive. Combining two arrivals is what a join is for; a step cannot express it, "
+                f"and the declaration reads as though it can.")
+
+        arrivals = incoming.get(id(n), [])
+        if len(arrivals) > 1:
+            froms = ", ".join(sorted(_name(e.source) for e in arrivals))
+            findings.append(
+                f"node {n.name!r} is fed by {len(arrivals)} edges ({froms}), so it is invoked "
+                f"once PER EDGE with one value each time, and all but one result is discarded. "
+                f"Measured on exactly this shape: the step ran twice and the graph returned only "
+                f"the first. If the intent is to combine them, this is a join, not a step.")
 
     return findings
