@@ -435,3 +435,107 @@ def test_a_linear_chain_is_not_flagged() -> None:
     """The check must not fire on the ordinary shape, or it is noise nobody reads."""
     assert Parent().check(direct_strategy) == []
     assert Child().check(child_strategy) == []
+
+
+# ── a loop-back is not a fan-in ─────────────────────────────────────────────────────────────
+
+def test_a_retry_loop_is_not_reported_as_a_fan_in() -> None:
+    """⛔ `check_step_arity`'s SECOND false positive, found the same way as the first — by
+    building a real design instead of reasoning about the rule.
+
+    A retry loop is the commonest reason anyone reaches for the `BaseNode` API:
+
+        propose -> validate -> route --Retry--> unwrap -> propose
+
+    That back edge gives `propose` two incoming edges. The check called it a fan-in whose results
+    were being discarded. Measured against raw pydantic-graph: the cycle is legal, `propose` runs
+    three times, and each run flows forward on its own — the invocations are separated in TIME.
+    """
+    from dataclasses import dataclass, field as dc_field
+
+    from workflow_workbench import DecisionSpec
+
+    @dataclass
+    class Good:
+        text: str
+
+    @dataclass
+    class Again:
+        text: str
+
+    @dataclass
+    class Log:
+        steps: list = dc_field(default_factory=list)
+        n: int = 0
+
+    seed = VariableSpec("seed", str)
+    draft = VariableSpec("draft", str)
+    verdict = VariableSpec("verdict", object)
+    out_v = VariableSpec("out_v", str)
+
+    propose = NodeSpec("propose", inputs=(seed,), outputs=(draft,))
+    judge = NodeSpec("judge", inputs=(draft,), outputs=(verdict,))
+    unwrap = NodeSpec("unwrap", inputs=(verdict,), outputs=(seed,))
+    finish = NodeSpec("finish", inputs=(verdict,), outputs=(out_v,))
+    route = DecisionSpec("route", inputs=(verdict,), outputs=(verdict,))
+
+    class WithRetry(GraphSpec):
+        name = "with_retry"
+        state_type = Log
+        input_type, output_type = str, str
+        nodes = (propose, judge, unwrap, finish)
+        decisions = (route,)
+        edges = (EdgeSpec(START, propose, seed),
+                 EdgeSpec(propose, judge, draft),
+                 EdgeSpec(judge, route, verdict),
+                 EdgeSpec(route, unwrap, verdict, when=Again),
+                 EdgeSpec(route, finish, verdict, when=Good),
+                 EdgeSpec(unwrap, propose, seed),          # the back edge
+                 EdgeSpec(finish, END, out_v))
+
+    async def do_propose(ctx) -> str:
+        ctx.state.n += 1
+        ctx.state.steps.append(f"propose#{ctx.state.n}")
+        return f"draft-{ctx.state.n}"
+
+    async def do_judge(ctx) -> object:
+        ctx.state.steps.append("judge")
+        return Again(ctx.inputs) if ctx.state.n < 3 else Good(ctx.inputs)
+
+    async def do_unwrap(ctx) -> str:
+        return ctx.inputs.text
+
+    async def do_finish(ctx) -> str:
+        return f"done({ctx.inputs.text})"
+
+    strategy = StrategySpec("s", {propose: do_propose, judge: do_judge,
+                                  unwrap: do_unwrap, finish: do_finish})
+    spec = WithRetry()
+
+    assert spec.check(strategy) == [], "a loop-back was reported as a fan-in"
+
+    log = Log()
+    assert spec.render(strategy).run_sync(inputs="a plan", state=log) == "done(draft-3)"
+    assert log.steps.count("propose#1") == 1
+    assert [s for s in log.steps if s.startswith("propose")] == [
+        "propose#1", "propose#2", "propose#3"], log.steps
+
+
+def test_a_real_fan_in_is_still_caught_next_to_a_loop() -> None:
+    """The back-edge exclusion must not become an amnesty for every multi-edge node."""
+    a_var = VariableSpec("a_var", str)
+    one = NodeSpec("one", inputs=(text,), outputs=(a_var,))
+    two = NodeSpec("two", inputs=(text,), outputs=(a_var,))
+    sink = NodeSpec("sink", inputs=(a_var,), outputs=(text,))
+
+    class RealFanIn(GraphSpec):
+        name = "real_fan_in"
+        input_type, output_type = str, str
+        nodes = (one, two, sink)
+        edges = (EdgeSpec(START, one, text),
+                 EdgeSpec(START, two, text),
+                 EdgeSpec(one, sink, a_var),
+                 EdgeSpec(two, sink, a_var),
+                 EdgeSpec(sink, END, text))
+
+    assert any("invoked once PER EDGE" in f for f in RealFanIn().check()), RealFanIn().check()

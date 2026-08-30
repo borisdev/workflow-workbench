@@ -447,16 +447,27 @@ def check_step_arity(nodes: tuple[NodeSpec, ...], edges: tuple[EdgeSpec, ...],
     `(current, input) -> current` is the shape that can actually combine two arrivals.
     `examples/ladder/stage8_join.py` shows the form.
 
-    ⚠️ Scope, stated because it will need revisiting: within what a `GraphSpec` can DECLARE today
-    every incoming edge fires, so >1 always means >1 invocation. Once `decision` becomes
-    declarable, a node downstream of two mutually exclusive branches would be invoked once and
-    this second finding would become a false positive. Narrow it then — with the branch
-    declaration in hand — rather than pre-emptively weakening it now.
+    ⚠️ TWO shapes are NOT fan-ins and are excluded. Both were found by RUNNING a real design, and
+    both shipped as false positives first:
+
+        mutually exclusive branches   two branches of one decision converging. Measured: the node
+                                      downstream runs ONCE. Handled by `_exclusive_groups`.
+        a loop-back                   a retry edge returning to an earlier node. Measured against
+                                      raw pydantic-graph: the cycle is legal and the node running
+                                      three times is the POINT. "All but one result discarded" is
+                                      false there — the invocations are separated in TIME, not
+                                      concurrent. Handled by `_back_edges`.
+
+    The lesson is in the rule's shape: it is stated in terms of edge COUNT, which is easy to
+    compute and is not the question. Concurrency is.
     """
     findings: list[str] = []
     groups = _exclusive_groups(decisions, edges)
+    back = _back_edges(edges)
     incoming: dict[int, list[EdgeSpec]] = {}
     for e in edges:
+        if id(e) in back:
+            continue                       # a loop-back is not a concurrent arrival
         if not is_sentinel(e.target):
             incoming.setdefault(id(e.target), []).append(e)
 
@@ -614,3 +625,34 @@ def check_variable_types(parent: Any, strategy: StrategySpec) -> list[str]:
             ". An unannotated or unresolvable implementation cannot be checked against its "
             "declared output, and saying nothing would make that look like a pass.")
     return findings
+
+
+def _back_edges(edges: tuple[EdgeSpec, ...]) -> set[int]:
+    """Edges whose source is reachable FROM their target — a loop-back, not an arrival.
+
+    ⛔ Found by building a retry loop, which is the commonest reason anyone reaches for the
+    `BaseNode` API: `propose -> validate -> route --Retry--> unwrap -> propose`. That back edge
+    gives `propose` two incoming edges, and `check_step_arity` called it a fan-in whose results
+    were being discarded. Measured against raw pydantic-graph: the cycle is legal, `propose` runs
+    three times, and each run flows forward on its own. Nothing is discarded.
+    """
+    fwd: dict[int, list[Any]] = {}
+    for e in edges:
+        fwd.setdefault(id(e.source), []).append(e.target)
+
+    def reaches(start: Any, goal: Any) -> bool:
+        seen: set[int] = set()
+        stack = list(fwd.get(id(start), ()))
+        while stack:
+            cur = stack.pop()
+            if id(cur) in seen:
+                continue
+            seen.add(id(cur))
+            if cur is goal:
+                return True
+            stack.extend(fwd.get(id(cur), ()))
+        return False
+
+    return {id(e) for e in edges
+            if not is_sentinel(e.source) and not is_sentinel(e.target)
+            and reaches(e.target, e.source)}
