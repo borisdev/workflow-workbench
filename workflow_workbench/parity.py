@@ -125,13 +125,17 @@ FEATURES: tuple[Feature, ...] = (
         "class Increment(BaseNode[S, None, int]):\n"
         "    async def run(self, ctx) -> DoubleIt:       # names its OWN successor\n"
         "        return DoubleIt(...)",
-        "# no equivalent, and this is not a gap to close.\n"
-        "# For the usual reason people reach for it — a retry loop — route BACKWARDS:\n"
-        "EdgeSpec(route, unwrap, v, when=Retry)\n"
-        "EdgeSpec(unwrap, propose, seed)                 # the back edge",
+        "# no equivalent for the CLASS. All three things it is used FOR are declarable:\n"
+        "EdgeSpec(gate, END, v, when=NotAPlan)      # 1. stop early  (their End(...))\n"
+        "EdgeSpec(again, retry_seed, v, when=Thin)  # 2. go back     (a loop)\n"
+        "EdgeSpec(unwrap, propose, seed)\n"
+        "EdgeSpec(route, escalate, v, when=Urgent)  # 3. dispatch    (pick a successor)",
         "A BaseNode's topology lives inside its implementation, so declared `edges` would be a "
-        "lie it is free to ignore — and two arms binding different BaseNodes could be two "
-        "different graphs while `diff_diagram()` drew them as one.",
+        "lie it is free to ignore — two arms binding different BaseNodes could be two different "
+        "graphs while `diff_diagram()` drew them as one. ⚠️ But what is lost is the AUTHORING "
+        "STYLE, not the capability: `examples/ladder/stage10_no_basenode.py` does all three in "
+        "one design. The real cost is porting an existing BaseNode app, and one converter node "
+        "wherever two paths reach the same step carrying different variables.",
     ),
     Feature("build", "plumbing", "graph = g.build()", "graph = spec.render(strategy)", ""),
     Feature("start_node / end_node", "plumbing", "g.start_node, g.end_node", "START, END", ""),

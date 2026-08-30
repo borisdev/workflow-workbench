@@ -107,8 +107,19 @@ class NodeSpec:
     dead end, not a missing feature. A BaseNode's `run()` returns the NEXT NODE, so its topology
     lives inside its implementation — declared `edges` would be a lie it is free to ignore, and
     two arms binding different BaseNodes could be two different graphs while `diff_diagram()`
-    drew them as one. If someone wants a retry loop (the usual reason), route BACKWARDS with a
-    `DecisionSpec` instead; `tests/test_subgraph.py` has a worked one. See `parity.py`.
+    drew them as one.
+
+    ⚠️ Before concluding that costs anything: the three things BaseNode is actually USED for are
+    all declarable, and `examples/ladder/stage10_no_basenode.py` does all three in one design.
+
+        stop early   `EdgeSpec(gate, END, v, when=NotAPlan)` — their `End(...)`, as a branch
+                     with no node on it
+        go back      a branch to an earlier node. `_back_edges` knows it is not a fan-in
+        dispatch     return a discriminating TYPE and branch on it with `when=`
+
+    What is lost is the authoring style, plus one converter node wherever two paths reach the
+    same step carrying different variables — a NodeSpec cannot declare "either of these". See
+    `parity.py`.
 
     ## ⚠️ `eq=False` is load-bearing, not a style choice
 

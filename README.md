@@ -89,6 +89,7 @@ paying on rung 2, when `pick` has two implementations and something has to hold 
 | 7 | proof it is a real `Graph` — their `iter()` drives it unchanged | [`stage7_iter.py`](examples/ladder/stage7_iter.py) |
 | 8 | **a declared join** — two producers into one consumer, combined rather than dropped | [`stage8_join.py`](examples/ladder/stage8_join.py) |
 | 9 | **conditional routing** — branches on the type of the answer, converging again | [`stage9_decision.py`](examples/ladder/stage9_decision.py) |
+| 10 | **the three things people reach for `BaseNode` to do** — stop early, go back, dispatch — declared | [`stage10_no_basenode.py`](examples/ladder/stage10_no_basenode.py) |
 
 ```bash
 uv run python3 -m examples.ladder.stage2_strategies    # any rung
@@ -457,13 +458,14 @@ class Increment(BaseNode[S, None, int]):
 Workflow Workbench:
 
 ```python
-# no equivalent, and this is not a gap to close.
-# For the usual reason people reach for it — a retry loop — route BACKWARDS:
-EdgeSpec(route, unwrap, v, when=Retry)
-EdgeSpec(unwrap, propose, seed)                 # the back edge
+# no equivalent for the CLASS. All three things it is used FOR are declarable:
+EdgeSpec(gate, END, v, when=NotAPlan)      # 1. stop early  (their End(...))
+EdgeSpec(again, retry_seed, v, when=Thin)  # 2. go back     (a loop)
+EdgeSpec(unwrap, propose, seed)
+EdgeSpec(route, escalate, v, when=Urgent)  # 3. dispatch    (pick a successor)
 ```
 
-> A BaseNode's topology lives inside its implementation, so declared `edges` would be a lie it is free to ignore — and two arms binding different BaseNodes could be two different graphs while `diff_diagram()` drew them as one.
+> A BaseNode's topology lives inside its implementation, so declared `edges` would be a lie it is free to ignore — two arms binding different BaseNodes could be two different graphs while `diff_diagram()` drew them as one. ⚠️ But what is lost is the AUTHORING STYLE, not the capability: `examples/ladder/stage10_no_basenode.py` does all three in one design. The real cost is porting an existing BaseNode app, and one converter node wherever two paths reach the same step carrying different variables.
 
 **Plumbing, not topology:** `build`, `start_node / end_node`, `Source / Destination` — `render()` and `START`/`END` cover these.
 <!-- parity:end -->

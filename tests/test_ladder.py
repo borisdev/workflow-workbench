@@ -190,7 +190,7 @@ def test_rung7_a_subgraph_stays_out_of_the_parents_event_stream() -> None:
 @pytest.mark.parametrize("module", [
     "their_hello", "stage1_bare", "stage2_strategies", "stage3_new_node",
     "stage4_subgraph", "stage5_battle", "stage6_diagrams", "stage7_iter", "stage8_join",
-    "stage9_decision",
+    "stage9_decision", "stage10_no_basenode",
 ])
 def test_every_rung_runs_as_a_script(module: str) -> None:
     """Weakest test here, and it earns its place: the README prints these commands, and a reader
@@ -454,3 +454,43 @@ def test_the_capability_matrix_classifies_every_public_graphbuilder_method() -> 
     assert proc.returncode == 0, (
         f"the capability matrix is out of date:\n{proc.stdout[-2500:]}\n{proc.stderr[-1500:]}")
     assert "appear in parity.FEATURES" in proc.stdout, proc.stdout[-800:]
+
+
+# ── rung 10: the three BaseNode uses, declared ──────────────────────────────────────────────
+
+def test_rung10_a_gate_can_end_the_run_without_doing_the_work() -> None:
+    """`End(...)` from a BaseNode, expressed as a branch with no node on it."""
+    from examples.ladder.stage10_no_basenode import Intake, Log, careful
+
+    log = Log()
+    out = Intake().render(careful).run_sync(inputs="my cat is unwell", state=log)
+
+    assert log.steps == ["triage"], "the gate did not stop the run"
+    assert type(out).__name__ == "NotAPlan"
+
+
+def test_rung10_a_retry_loop_and_a_dispatch_in_the_same_design() -> None:
+    from examples.ladder.stage10_no_basenode import Intake, Log, careful
+
+    log = Log()
+    out = Intake().render(careful).run_sync(inputs="metformin 1000 mg daily", state=log)
+
+    assert out == "audited: draft-2"
+    assert [s for s in log.steps if s.startswith("propose")] == ["propose#1", "propose#2"]
+    assert Intake().check(careful) == []
+
+
+def test_rung10_two_arms_gate_differently_without_moving_the_topology() -> None:
+    """⛔ The guarantee a BaseNode cannot give. `permissive` accepts what `careful` rejects, and
+    the node set is identical — so `varies()` reports one differing IMPLEMENTATION, not two
+    different graphs."""
+    from examples.ladder.stage10_no_basenode import Intake, Log, careful, permissive
+
+    spec = Intake()
+    assert spec.varies(careful, permissive) == {
+        "triage": ("do_triage", "do_triage_permissive")}
+    assert sorted(spec.render(careful).nodes) == sorted(spec.render(permissive).nodes)
+
+    log = Log()
+    spec.render(permissive).run_sync(inputs="my cat is unwell", state=log)
+    assert "publish" in log.steps, "the permissive arm should have built it anyway"
