@@ -89,6 +89,7 @@ paying on rung 2, when `pick` has two implementations and something has to hold 
 | 7 | proof it is a real `Graph` — their `iter()` drives it unchanged | [`stage7_iter.py`](examples/ladder/stage7_iter.py) |
 | 8 | **a declared join** — two producers into one consumer, combined rather than dropped | [`stage8_join.py`](examples/ladder/stage8_join.py) |
 | 9 | **conditional routing** — branches on the type of the answer, converging again | [`stage9_decision.py`](examples/ladder/stage9_decision.py) |
+| 10 | **wire it by hand and stay checked** — the declaration becomes a claim verified against the built graph | [`stage10_hand_wired.py`](examples/ladder/stage10_hand_wired.py) |
 
 ```bash
 uv run python3 -m examples.ladder.stage2_strategies    # any rung
@@ -163,9 +164,14 @@ can declare as DATA — the only form `check()` and `diagram()` can read.
 `transform`, `broadcast` no.
 
 **6 fully declarable, 2 partial, 4 escape-hatch only.** Everything not declarable runs *only*
-through `build_pydantic_structure()` — which makes `edges` decorative and reports reachability as
-`NOT CHECKED` for the **whole design**, so reaching for one un-declarable feature costs the checks
-on every node around it. That is the argument `JoinSpec` and `DecisionSpec` were added on.
+through `build_pydantic_structure()`.
+
+⛔ That used to be the end of the story, and it was the expensive part: an override made `edges`
+decorative and reported reachability as `NOT CHECKED` for the **whole design**. Since
+`built.check_built_topology`, `render()` walks the **built** graph — so an override now costs only
+the ability to check *before the implementations exist*, and the `edges` declaration became a
+claim that is verified against what was actually compiled. A hand-wired design that skips,
+reorders or drops a declared node is refused.
 
 ⛔ **The matrix is checked against the real API, not maintained by hand.** An earlier version was
 written from a grep and missed five entries — `stream`, `node`, `match_node`, `add_mapping_edge`,

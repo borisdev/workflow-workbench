@@ -201,7 +201,7 @@ print(f"\n{len(results) - len(bad)}/{len(results)} builder features run\n")
 
 # ── what the escape hatch costs ─────────────────────────────────────────────────────────────
 print("=" * 92)
-print("can a GraphSpec DECLARE it — or does it need the escape hatch, which turns checking off?")
+print("can a GraphSpec DECLARE it — or must it be wired by hand in build_pydantic_structure()?")
 print("=" * 92 + "\n")
 
 from workflow_workbench import (  # noqa: E402
@@ -290,8 +290,10 @@ full = sum(1 for s, _ in topo.values() if s == "yes")
 part = sum(1 for s, _ in topo.values() if s == "partial")
 print(f"\n{full} fully declarable, {part} partial, {len(topo) - full - part} escape-hatch only, "
       f"out of {len(topo)} topology features on GraphBuilder.")
-print("Everything not declarable runs ONLY through build_pydantic_structure(), which makes `edges`")
-print("decorative and reports reachability as NOT CHECKED for the WHOLE design.")
+print("Everything not declarable runs ONLY through build_pydantic_structure(). That used to make")
+print("`edges` decorative and report reachability as NOT CHECKED for the whole design; since")
+print("`built.check_built_topology`, render() verifies the BUILT graph instead, so what an")
+print("override costs is checking BEFORE the implementations exist — not checking at all.")
 
 
 # ── ⛔ and the check that stops this list going stale ────────────────────────────────────────

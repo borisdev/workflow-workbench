@@ -12,7 +12,7 @@ from typing import Any, ClassVar
 
 from pydantic_graph import GraphBuilder
 
-from workflow_workbench import checks
+from workflow_workbench import built as _built, checks
 from workflow_workbench.diagram import diagram as _diagram, diff_diagram as _diff_diagram
 from workflow_workbench.spec import (
     DecisionSpec,
@@ -43,9 +43,13 @@ class GraphSpec:
 
     The DAG is DATA, not code — which is what lets `check()` and `diagram()` run with zero
     implementations and no engine. `build_pydantic_structure()` is the escape hatch for topologies
-    the declarative form cannot express (fan-out via `.map()`, joins); overriding it opts a design
-    out of the edges-derived wiring, and `check_reachable` is skipped with a stated reason rather
-    than silently passing.
+    the declarative form cannot express (`.map()` fan-out, `stream`, `BaseNode`); overriding it
+    opts a design out of the edges-derived wiring, so `check_reachable` is skipped with a stated
+    reason rather than silently passing.
+
+    ⚠️ Skipped THERE, not everywhere. `render()` checks the built graph afterwards, so an override
+    no longer costs reachability — and the `edges` declaration becomes a claim verified against
+    the result rather than a decorative one. See `built.py`.
     """
 
     name: ClassVar[str] = ""
@@ -113,9 +117,12 @@ class GraphSpec:
                                             decisions=self.decisions)
         if self._overrides_structure():
             findings.append(
-                f"NOT CHECKED — {type(self).__name__} overrides build_pydantic_structure(), so its "
-                f"real topology is not the `edges` declaration and reachability was not verified. "
-                f"This is a stated gap, not a pass.")
+                f"NOT CHECKED HERE — {type(self).__name__} overrides "
+                f"build_pydantic_structure(), so its real topology is not the `edges` declaration "
+                f"and cannot be verified from the declaration alone. `render()` verifies it "
+                f"against the BUILT graph instead (`built.check_built_topology`), including that "
+                f"every declared edge is honoured. So this is 'not from here', not 'not at all' — "
+                f"but it does mean this design cannot be checked before it is implemented.")
         else:
             findings += checks.check_reachable(endpoints, self.edges)
         if strategy is not None:
@@ -227,7 +234,7 @@ class GraphSpec:
         return run_subgraph
 
     def render(self, strategy: StrategySpec) -> Any:
-        """Check, then compile to a real `pydantic_graph.Graph`.
+        """Check the declaration, compile, then check what was COMPILED.
 
         ⚠️ Returns the RAW `Graph`, with no provenance wrapper. `eval_battle` takes
         `(spec, strategy_a, strategy_b)` directly, so it never needs to recover the strategy from a
@@ -240,7 +247,23 @@ class GraphSpec:
             raise SpecError(
                 f"{self.name or type(self).__name__} cannot be rendered with strategy "
                 f"{strategy.name!r}:\n  " + "\n  ".join(hard))
-        return self._build(strategy)
+
+        graph = self._build(strategy)
+
+        # ⛔ THE SECOND HALF, and the one that works on designs the first half cannot read.
+        #
+        # Everything above walked the DECLARATION. A design overriding build_pydantic_structure()
+        # wires itself in code, so that walk would be checking a fiction and `check()` reports
+        # NOT CHECKED instead. Here there is a real Graph that knows its own topology, so the
+        # same questions get real answers however it was wired — and the `edges` declaration
+        # stops being decorative and becomes a claim that is verified against the result.
+        built_findings = _built.check_built_topology(self, graph)
+        built_findings += _built.check_declared_branches(self, graph)
+        if built_findings:
+            raise SpecError(
+                f"{self.name or type(self).__name__} built with strategy {strategy.name!r}, and "
+                f"the result does not match its declaration:\n  " + "\n  ".join(built_findings))
+        return graph
 
     # ── drawing ─────────────────────────────────────────────────────────────────────────────
 

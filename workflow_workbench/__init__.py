@@ -8,6 +8,7 @@
 `evals` is imported separately (`from workflow_workbench.evals import eval_battle`) so that `render()`
 stays usable without an evaluation framework installed.
 """
+from workflow_workbench.built import check_built_topology
 from workflow_workbench.checks import (
     check_bindings,
     check_decisions,
@@ -41,5 +42,6 @@ __all__ = [
     "START", "END",
     "check_names", "check_reachable", "check_variables", "check_bindings",
     "check_implementations", "check_subgraphs", "check_step_arity", "check_decisions",
+    "check_built_topology",
     "diagram", "diff_diagram",
 ]

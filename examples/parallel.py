@@ -6,8 +6,12 @@ workflow language competing with theirs. So `build_pydantic_structure()` is over
 `edges` declaration is decorative for this class — which `check()` reports as NOT CHECKED rather
 than passing silently.
 
-Two strategies still swap cleanly, which is the point: the escape hatch costs the reachability
-check, not the comparison.
+Two strategies still swap cleanly, which is the point.
+
+⛔ CORRECTED. This used to say the escape hatch "costs the reachability check". It no longer does.
+`render()` checks the BUILT graph — so this design's reachability IS verified, and so is every
+declared edge, `.map()`-inserted nodes and all. What the override still costs is checking BEFORE
+the implementations exist: `check()` alone cannot read a topology written in code.
 
     uv run python3 examples/parallel.py
 """
