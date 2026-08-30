@@ -17,6 +17,7 @@ from workflow_workbench.diagram import diagram as _diagram, diff_diagram as _dif
 from workflow_workbench.spec import (
     DecisionSpec,
     EdgeSpec,
+    TransformEdgeSpec,
     JoinSpec,
     NodeSpec,
     SpecError,
@@ -124,16 +125,29 @@ class GraphSpec:
         findings += checks.check_step_arity(self.nodes, self.edges,
                                             decisions=self.decisions)
         findings += checks.check_reachable(endpoints, self.edges)
+        findings += checks.check_transform_edges(self.edges, strategy)
         if strategy is not None:
-            findings += checks.check_bindings(self.nodes, strategy)
+            findings += checks.check_bindings(self._bindables(), strategy)
             findings += checks.check_implementations(strategy)
             findings += checks.check_variable_types(self, strategy)
             findings += checks.check_subgraphs(self, strategy, ancestry=(*ancestry, key))
         return findings
 
+    def _bindables(self) -> tuple[Any, ...]:
+        """Everything a strategy must bind: nodes, plus transform edges left open.
+
+        ⚠️ Not `nodes`. A variation point is defined by the design leaving an implementation OPEN,
+        not by where it is declared — a `TransformEdgeSpec` with no `apply=` is one, and it lives
+        in `edges`.
+        """
+        open_transforms = tuple(e for e in self.edges
+                                if isinstance(e, TransformEdgeSpec) and e.apply is None)
+        return (*self.nodes, *open_transforms)
+
     # ── rendering ───────────────────────────────────────────────────────────────────────────
 
-    def _wire(self, g: GraphBuilder, nodes: dict[Any, Any]) -> None:
+    def _wire(self, g: GraphBuilder, nodes: dict[Any, Any],
+              strategy: StrategySpec) -> None:
         """Every edge, derived from the `edges` declaration. There is no other way to wire.
 
         ⛔ THIS IS PRIVATE, and that is the design. There was a public
@@ -144,10 +158,10 @@ class GraphSpec:
         because walking a declaration that no longer built anything would have been checking a
         fiction.
 
-        It was removed once nothing needed it: `map`, `stream`, joins, decisions, broadcasts and
-        fan-in are all declarable now. What is left un-declarable is `transform` (deliberately —
-        a callable in a declaration is an implementation) and the `BaseNode` API (which cannot be
-        declared, because a BaseNode returns its own successor).
+        It was removed once nothing needed it: `map`, `stream`, `transform`, joins, decisions,
+        broadcasts and fan-in are all declarable now. What is left is the `BaseNode` API, which
+        cannot be declared because a BaseNode returns its own successor — and the `matches=`
+        predicate form of a branch, which is refused rather than missing.
 
         If you need those, `render()` hands you a real `pydantic_graph.Graph`: take it and use
         their API directly. A workbench that can express everything is just the engine with extra
@@ -168,6 +182,10 @@ class GraphSpec:
             if e.map_over is not None:
                 # fan out: the target runs once per item of the collection on this edge
                 builder = builder.map()
+            if isinstance(e, TransformEdgeSpec):
+                # ⚠️ `.transform()` emits NO node. That is the point: a reshape is not a stage,
+                # so it appears as a tag on the arrow rather than a box on the canvas.
+                builder = builder.transform(e.apply if e.apply is not None else strategy[e])
             # Verified (probe 2): one g.add() per edge produces topology identical to one
             # combined g.add(*edges).
             g.add(builder.to(dst))
@@ -216,7 +234,7 @@ class GraphSpec:
                 node = node.branch(g.match(e.when).to(target))
             built[dec] = node
 
-        self._wire(g, built)
+        self._wire(g, built, strategy)
         return g.build()
 
     def _step_body(self, node: NodeSpec, binding: Any) -> Any:
@@ -295,6 +313,16 @@ class GraphSpec:
         structural diff reports "nothing varies" on every pair. The experiment is in the bindings.
         """
         from workflow_workbench.diagram import impl_name
-        return {n.name: (impl_name(a[n]), impl_name(b[n]))
-                for n in self.nodes
+
+        def label(spec: Any) -> str:
+            if isinstance(spec, TransformEdgeSpec):
+                src = "START" if isinstance(spec.source, _Start) else spec.source.name
+                dst = "END" if isinstance(spec.target, _End) else spec.target.name
+                return f"{src}->{dst}"
+            return spec.name
+
+        # ⚠️ Transform edges are here too, because an arm may reshape a value differently — and a
+        # difference nobody can see is the one that ruins a comparison.
+        return {label(n): (impl_name(a[n]), impl_name(b[n]))
+                for n in self._bindables()
                 if n in a.bindings and n in b.bindings and a[n] is not b[n]}

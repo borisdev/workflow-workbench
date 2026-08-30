@@ -111,14 +111,18 @@ FEATURES: tuple[Feature, ...] = (
         "the better design anyway — it becomes something you can see and battle.",
     ),
     Feature(
-        "transform", "refused",
+        "transform", "yes",
         "g.edge_from(a).transform(lambda ctx: ctx.inputs.edges).to(b)",
-        "# either it is a stage, and deserves a name:\n"
-        'prune = NodeSpec("prune", inputs=(graph,), outputs=(edges_v,))\n'
-        "# or it is plumbing, and belongs in the consumer:\n"
-        "async def cite(ctx) -> CaseGraph:\n    edges = ctx.inputs.edges",
-        "Same reason as the predicate form. Being forced to choose is the point: if the "
-        "reshaping matters, it belongs on the diagram.",
+        "# fixed — part of the design, like a JoinSpec's reducer:\n"
+        "TransformEdgeSpec(propose, cite, draft, produces=edge_list, apply=take_edges)\n"
+        "# or a variation point — every strategy binds it, and varies() reports it:\n"
+        "shape = TransformEdgeSpec(propose, cite, draft, produces=edge_list)\n"
+        'StrategySpec("all", {..., shape: all_edges})',
+        "Emits NO node, exactly as theirs does, so the diagram tags the arrow rather than adding "
+        "a box — a reshape is not a stage and drawing it as one misleads. `variable` is what "
+        "leaves the source, `produces` what arrives. Exactly one of `apply=` or a binding: "
+        "neither is a silently missing transform, both is a coin toss. Must be SYNC — an async "
+        "one is not rejected by pydantic-graph, it quietly yields a coroutine.",
     ),
     Feature(
         "node(BaseNode) / match_node", "cannot",

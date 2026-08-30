@@ -51,12 +51,26 @@ def test_every_feature_shows_both_sides() -> None:
         assert f.status in {"yes", "partial", "refused", "cannot", "plumbing"}, f.api
 
 
-def test_refused_and_cannot_are_distinguished() -> None:
+def test_the_status_vocabulary_keeps_refusal_and_impossibility_apart() -> None:
     """⚠️ Collapsing these into 'no' is how a deliberate design decision comes to read as a gap,
-    and how the next person 'fixes' it."""
+    and how the next person 'fixes' it.
+
+    ⛔ `refused` currently has NO members, and that is the right kind of empty. `transform` was the
+    only one, and it graduated to `yes` once `TransformEdgeSpec` showed the refusal had been
+    argued on a bad premise — that a strategy-bound callable must be a node. The vocabulary stays
+    because the distinction is still real; a refusal that returns will have somewhere honest to
+    live rather than being filed as a gap.
+    """
+    allowed = {"yes", "partial", "refused", "cannot", "plumbing"}
+    assert {f.status for f in FEATURES} <= allowed
+
     by_status = {f.status for f in FEATURES}
-    assert "refused" in by_status, "transform is a decision, not an omission"
     assert "cannot" in by_status, "BaseNode is a different authoring model, not a TODO"
+
+    # a `partial` must say which half is refused, or "partial" is just a shrug
+    for f in FEATURES:
+        if f.status == "partial":
+            assert f.note, f.api
 
 
 def test_the_appendix_names_the_workaround_for_everything_not_covered() -> None:

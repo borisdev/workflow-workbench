@@ -16,6 +16,7 @@ from typing import Any
 from workflow_workbench.spec import (
     DecisionSpec,
     EdgeSpec,
+    TransformEdgeSpec,
     NodeSpec,
     StrategySpec,
     SubgraphBinding,
@@ -26,7 +27,7 @@ from workflow_workbench.spec import (
 
 __all__ = ["check_names", "check_reachable", "check_variables", "check_bindings",
            "check_implementations", "check_subgraphs", "check_step_arity", "check_decisions",
-           "check_variable_types"]
+           "check_variable_types", "check_transform_edges"]
 
 
 def _name(ep: Any) -> str:
@@ -156,38 +157,52 @@ def check_variables(nodes: tuple[NodeSpec, ...], edges: tuple[EdgeSpec, ...]) ->
                     f"declare it as an output (it declares: {declared}). Either the edge is wired "
                     f"to the wrong variable or the node's contract is out of date.")
         if not is_sentinel(e.target):
-            # ⚠️ On a fan-out the two ends carry DIFFERENT variables: the collection crosses the
-            # wire, the target receives one item. So the target is checked against `map_over`.
-            arrives = e.map_over if e.map_over is not None else e.variable
+            # ⚠️ Two shapes where the ends carry DIFFERENT variables, so the target is checked
+            # against what ARRIVES rather than what left:
+            #   fan-out    the collection crosses, one item lands   -> `map_over`
+            #   transform  the value is reshaped on the wire        -> `produces`
+            if isinstance(e, TransformEdgeSpec):
+                arrives = e.produces
+            elif e.map_over is not None:
+                arrives = e.map_over
+            else:
+                arrives = e.variable
             if arrives not in e.target.inputs:
                 declared = ", ".join(v.name for v in e.target.inputs) or "nothing"
-                how = " (one item per run)" if e.map_over is not None else ""
+                how = (" (reshaped on the wire)" if isinstance(e, TransformEdgeSpec)
+                       else " (one item per run)" if e.map_over is not None else "")
                 findings.append(
                     f"edge {e!r} delivers {arrives.name!r}{how} to {e.target.name!r}, which does "
                     f"not declare it as an input (it declares: {declared}).")
     return findings
 
 
-def check_bindings(nodes: tuple[NodeSpec, ...], strategy: StrategySpec) -> list[str]:
-    """The strategy binds exactly the declared nodes — no missing, no extra.
+def check_bindings(bindables: tuple[Any, ...], strategy: StrategySpec) -> list[str]:
+    """The strategy binds exactly the declared VARIATION POINTS — no missing, no extra.
+
+    ⚠️ `bindables`, not `nodes`. A `TransformEdgeSpec` with no `apply=` is a variation point too,
+    and it lives in `edges`. What makes something bindable is not where it is declared but whether
+    the design left its implementation open.
 
     ⚠️ Compared by IDENTITY, matching `NodeSpec.__hash__`. Comparing by name would accept a
     binding keyed on a look-alike node from another design, which is the failure identity keying
     exists to prevent.
     """
     findings: list[str] = []
-    declared = {id(n): n for n in nodes}
+    declared = {id(n): n for n in bindables}
     bound = {id(n): n for n in strategy.bindings}
     for nid, n in declared.items():
         if nid not in bound:
             findings.append(
-                f"strategy {strategy.name!r} does not bind node {n.name!r}. Every node is bound "
+                f"strategy {strategy.name!r} does not bind {_bindable_name(n)}. Every one is "
+                f"bound "
                 f"explicitly, including unchanged ones — a partial strategy makes 'what varies "
                 f"between these arms' unanswerable without reading both files.")
     for nid, n in bound.items():
         if nid not in declared:
             findings.append(
-                f"strategy {strategy.name!r} binds {n.name!r}, which this design does not declare. "
+                f"strategy {strategy.name!r} binds {_bindable_name(n)}, which this design does "
+                f"not declare. "
                 f"Most likely it was written against a different GraphSpec that has a node of the "
                 f"same name.")
     return findings
@@ -656,3 +671,47 @@ def _back_edges(edges: tuple[EdgeSpec, ...]) -> set[int]:
     return {id(e) for e in edges
             if not is_sentinel(e.source) and not is_sentinel(e.target)
             and reaches(e.target, e.source)}
+
+
+def _bindable_name(spec: Any) -> str:
+    if isinstance(spec, TransformEdgeSpec):
+        return f"transform edge {_name(spec.source)} -> {_name(spec.target)}"
+    return f"node {getattr(spec, 'name', spec)!r}"
+
+
+def check_transform_edges(edges: tuple[EdgeSpec, ...], strategy: StrategySpec | None) -> list[str]:
+    """A transform edge is fixed (`apply=`) or a variation point (bound) — exactly one.
+
+    ⛔ Neither is a silently missing transform: the value would cross unchanged while the
+    declaration says it was reshaped, and `produces` would be a lie the diagram repeats. Both is a
+    coin toss about which one runs.
+
+    Same shape as `JoinSpec`'s `initial=` / `initial_factory=` rule, and for the same reason.
+
+    ⚠️ The bound function must be SYNC. pydantic-graph's transform protocol is `def __call__`, and
+    an async one is not rejected by the engine — measured against 2.35.1, it silently produces a
+    coroutine object and warns "never awaited". A value that is a coroutine flows on to the next
+    step and fails there, attributed to the wrong place.
+    """
+    findings: list[str] = []
+    for e in edges:
+        if not isinstance(e, TransformEdgeSpec):
+            continue
+        bound = strategy is not None and e in strategy.bindings
+        if e.apply is not None and bound:
+            findings.append(
+                f"{e!r} declares `apply=` AND is bound by strategy {strategy.name!r}. Exactly one "
+                f"— otherwise which of the two runs is a coin toss.")
+        if e.apply is None and strategy is not None and not bound:
+            findings.append(
+                f"{e!r} has no `apply=` and no binding, so nothing reshapes the value. It would "
+                f"cross unchanged while the declaration says it becomes "
+                f"{e.produces.name!r} — a lie the diagram would repeat.")
+        fn = e.apply if e.apply is not None else (strategy[e] if bound else None)
+        if fn is not None and inspect.iscoroutinefunction(fn):
+            findings.append(
+                f"{e!r} is bound to an ASYNC function. A transform runs on the wire and cannot "
+                f"await — pydantic-graph would not reject it, it would quietly pass a coroutine "
+                f"object to the next step. If it needs to await, it is a stage: give it a "
+                f"NodeSpec.")
+    return findings

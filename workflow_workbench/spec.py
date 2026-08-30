@@ -5,6 +5,7 @@
     EdgeSpec         source -> target, carrying one named variable
     JoinSpec         the one node kind that COMBINES several arrivals; no implementation to bind
     DecisionSpec     routes on the TYPE of the value; its branches are edges carrying `when=`
+    TransformEdgeSpec  a cheap synchronous reshape ON THE WIRE — no node, still declared
     SubgraphBinding  a whole child design, used as ONE node's implementation
     StrategySpec     a complete NodeSpec -> implementation mapping
 
@@ -20,8 +21,8 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from workflow_workbench.graph_spec import GraphSpec
 
-__all__ = ["SpecError", "VariableSpec", "NodeSpec", "EdgeSpec", "JoinSpec",
-           "DecisionSpec", "SubgraphBinding", "StrategySpec", "START", "END",
+__all__ = ["SpecError", "VariableSpec", "NodeSpec", "EdgeSpec", "TransformEdgeSpec",
+           "JoinSpec", "DecisionSpec", "SubgraphBinding", "StrategySpec", "START", "END",
            "Endpoint", "is_sentinel"]
 
 
@@ -177,16 +178,18 @@ class NodeSpec:
 class EdgeSpec:
     """One wire: `source -> target`, carrying `variable`.
 
-    ⛔ FOR A FUTURE AGENT: do not add a `transform=` or a `matches=` field here. Both have been
-    considered and REFUSED, and both look like obvious omissions until you see why:
+    ⛔ FOR A FUTURE AGENT: do not add a `matches=` predicate field here. It looks like an obvious
+    omission and is a refusal: a predicate on an edge is an implementation the diagram cannot
+    draw and `varies()` cannot compare. Return a discriminating TYPE from a step and branch on it
+    with `when=` — `examples/ladder/stage9_decision.py` shows it, and the routing becomes a value
+    you can see and battle instead of a lambda.
 
-        a callable on an edge is an IMPLEMENTATION living in the declaration. `diagram()` cannot
-        draw what it does, `varies()` cannot compare two of them, and `check_variable_types`
-        cannot check it. The declaration would then contain a step nobody can see.
-
-    If the reshaping matters it is a stage — give it a `NodeSpec`. If it does not, do it at the
-    top of the consuming step body. For routing, return a discriminating TYPE from a step and
-    branch on it with `when=`. See `parity.py`, which is where this is written down for users.
+    ⚠️ A `transform=` field WAS refused on that same argument, and the argument was wrong. See
+    `TransformEdgeSpec` below: a reshape on the wire keeps every property that mattered — bound
+    by a strategy, reported by `varies()`, checked against `produces` — while emitting no node.
+    What was actually wrong was insisting it be a NodeSpec, which put a box on the canvas for
+    something that is not a stage. Recorded because the shape of the mistake generalises: an
+    invariant I had written ("strategies bind nodes") was defended as though it were a law.
 
     ⚠️ `variable` names WHICH declared value crosses this wire, and it is checked per-edge. A node
     with two outputs wired to two targets can have them swapped, and a check that merely aggregates
@@ -245,6 +248,78 @@ class EdgeSpec:
 
 def _ep_name(ep: Any) -> str:
     return "START" if isinstance(ep, _Start) else "END" if isinstance(ep, _End) else ep.name
+
+
+@dataclass(frozen=True, eq=False)
+class TransformEdgeSpec(EdgeSpec):
+    """A cheap SYNCHRONOUS reshape that happens ON THE WIRE, creating no node.
+
+        prune = TransformEdgeSpec(propose, cite, draft_graph,
+                                  produces=edge_list, apply=take_edges)
+
+    `variable` is what leaves the source; `produces` is what arrives at the target. In between,
+    one sync callable. pydantic-graph builds this with `.transform()` and emits NO node for it —
+    so the diagram draws it as a tag on the arrow, not as a stage.
+
+    ## Why an edge and not a NodeSpec
+
+    Because it is not a stage, and drawing it as one misleads. A workflow diagram a clinician
+    reads should show the work, and `graph.edges` is not work — it is an accessor. But it is also
+    not nothing: it happens on every run of every arm, so it must be visible, checkable, and
+    comparable. An edge tag is all three; a box is one too many.
+
+    ## Fixed, or a variation point — exactly one
+
+        apply=fn        FIXED. Part of the design, like a JoinSpec's reducer. No strategy binds
+                        it, and `varies()` will never mention it.
+        apply=None      A VARIATION POINT. Every strategy must bind it, same rule as a node.
+
+    ⚠️ Never both, never neither. "Neither" is a silently missing transform; "both" is a coin toss
+    about which one wins. `checks.check_transform_edges` refuses either.
+
+    ⚠️ This does NOT breach "every node is bound explicitly, no partial strategies". That rule
+    exists so "what varies between these arms" is answerable without opening two files. An
+    `apply=` transform is not partially bound — it is not a variation point at all. The rule it
+    obeys is the one that matters: if it CAN vary, every arm states its position.
+
+    ## Synchronous, and that is the whole constraint
+
+    pydantic-graph's `TransformFunction` is `def __call__`, not `async def`, so a transform cannot
+    await. Measured against 2.35.1: an async one is NOT rejected — it silently yields a coroutine
+    object and warns "never awaited". So we refuse it at declaration instead.
+
+    ⚠️ And be honest about the strength of that: sync does not mean cheap. `requests.get()` is
+    sync and is very much work. It rules out the idiomatic async path, which is a strong
+    convention in an async codebase, not a proof.
+
+    ⚠️ Their docs do not explain `transform()` — it is absent from the builder page entirely, its
+    docstrings are mechanical, and no PR or issue discusses it. Everything above about THEIR
+    reasoning is inference from the code: the sync-only protocol, and `TransformMarker` sitting
+    beside `LabelMarker` rather than beside a node type. Do not cite it back as theirs.
+    """
+
+    produces: VariableSpec | None = None
+    apply: Callable[..., Any] | None = None
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        if self.produces is None:
+            raise SpecError(
+                f"{self!r} needs `produces=` — the variable that ARRIVES at the target. Without "
+                f"it the transform's output is undeclared, so nothing can check what it returns "
+                f"and the diagram cannot say what crosses the second half of the wire.")
+        if self.map_over is not None:
+            raise SpecError(
+                f"{self!r} sets both `map_over` and a transform. Fan-out and reshape on one wire "
+                f"is two things wearing one edge; use a plain fan-out edge into a transform edge.")
+        if self.apply is not None and not callable(self.apply):
+            raise SpecError(f"{self!r}: `apply` must be callable")
+
+    def __repr__(self) -> str:
+        how = getattr(self.apply, "__name__", "bound by strategy") if self.apply else "unbound"
+        return (f"TransformEdgeSpec({_ep_name(self.source)} -> {_ep_name(self.target)}"
+                f" [{self.variable.name if self.variable else '?'} -> "
+                f"{self.produces.name if self.produces else '?'}], {how})")
 
 
 @dataclass(frozen=True, eq=False)

@@ -16,6 +16,7 @@ from workflow_workbench.checks import (
     check_reachable,
     check_step_arity,
     check_subgraphs,
+    check_transform_edges,
     check_variable_types,
     check_variables,
 )
@@ -29,19 +30,20 @@ from workflow_workbench.spec import (
     JoinSpec,
     NodeSpec,
     SpecError,
+    TransformEdgeSpec,
     StrategySpec,
     SubgraphBinding,
     VariableSpec,
 )
 
 __all__ = [
-    "GraphSpec", "NodeSpec", "EdgeSpec", "JoinSpec", "DecisionSpec", "VariableSpec",
+    "GraphSpec", "NodeSpec", "EdgeSpec", "JoinSpec", "DecisionSpec", "TransformEdgeSpec", "VariableSpec",
     "StrategySpec",
     "SubgraphBinding",
     "SpecError",
     "START", "END",
     "check_names", "check_reachable", "check_variables", "check_bindings",
     "check_implementations", "check_subgraphs", "check_step_arity", "check_decisions",
-    "check_variable_types",
+    "check_variable_types", "check_transform_edges",
     "diagram", "diff_diagram",
 ]

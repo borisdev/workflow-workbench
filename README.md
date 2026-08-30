@@ -157,17 +157,17 @@ can declare as DATA — the only form `check()` and `diagram()` can read.
 | `broadcast`, `edge_from(*sources)`, multi-destination `to` | **yes** | several `EdgeSpec`s from or into one node — *measured* equivalent |
 | `add` / `add_edge` / `label` | **yes** | `EdgeSpec` |
 | `match` | partial | the type form is `when=T`. The `matches=` **predicate** form is deliberately not — return a discriminating type from a step instead |
-| `transform` | no | deliberately: a callable on an edge is an implementation in the declaration |
+| `transform` | **yes** | `TransformEdgeSpec` — a reshape on the wire, emitting no node |
 | `node` / `match_node` | no | a `BaseNode` returns its own successor, so its topology cannot be declared |
 
-**9 fully declarable, 1 partial, 2 not.**
+**10 fully declarable, 1 partial, 2 not.**
 
 ⛔ **And there is no escape hatch.** `edges` is the only way a graph gets wired — no override, no
 hook. There used to be one, and it was the single thing that could make a built graph disagree
 with its declaration: `edges` became decorative, `diagram()` could draw a picture the graph did
 not match, and reachability was reported unchecked for the whole design.
 
-So if you need `transform`, a predicate branch, or the `BaseNode` API: **`render()` hands you a
+So if you need a predicate branch or the `BaseNode` API: **`render()` hands you a
 real `pydantic_graph.Graph` — take it and use their API directly.** A workbench that can express
 everything is the engine with extra steps. Everything not declarable runs *only*
 through `build_pydantic_structure()`.
@@ -425,7 +425,7 @@ EdgeSpec(route, escalate, v, when=Urgent)
 
 > REFUSED, not missing. A callable in the declaration is an implementation: `diagram()` cannot draw it and `varies()` cannot compare two. Making the decision a typed value is the better design anyway — it becomes something you can see and battle.
 
-### `transform` — refused, on purpose
+### `transform` — **yes**
 
 Pydantic Graph:
 
@@ -436,14 +436,14 @@ g.edge_from(a).transform(lambda ctx: ctx.inputs.edges).to(b)
 Workflow Workbench:
 
 ```python
-# either it is a stage, and deserves a name:
-prune = NodeSpec("prune", inputs=(graph,), outputs=(edges_v,))
-# or it is plumbing, and belongs in the consumer:
-async def cite(ctx) -> CaseGraph:
-    edges = ctx.inputs.edges
+# fixed — part of the design, like a JoinSpec's reducer:
+TransformEdgeSpec(propose, cite, draft, produces=edge_list, apply=take_edges)
+# or a variation point — every strategy binds it, and varies() reports it:
+shape = TransformEdgeSpec(propose, cite, draft, produces=edge_list)
+StrategySpec("all", {..., shape: all_edges})
 ```
 
-> Same reason as the predicate form. Being forced to choose is the point: if the reshaping matters, it belongs on the diagram.
+> Emits NO node, exactly as theirs does, so the diagram tags the arrow rather than adding a box — a reshape is not a stage and drawing it as one misleads. `variable` is what leaves the source, `produces` what arrives. Exactly one of `apply=` or a binding: neither is a silently missing transform, both is a coin toss. Must be SYNC — an async one is not rejected by pydantic-graph, it quietly yields a coroutine.
 
 ### `node(BaseNode) / match_node` — cannot be declared
 

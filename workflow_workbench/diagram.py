@@ -19,6 +19,7 @@ from typing import Any
 from workflow_workbench.spec import (
     DecisionSpec,
     EdgeSpec,
+    TransformEdgeSpec,
     JoinSpec,
     NodeSpec,
     StrategySpec,
@@ -54,6 +55,11 @@ def _arrow(e: EdgeSpec) -> str:
     if e.when is not None:
         return f"-- {getattr(e.when, '__name__', e.when)} -->"
     lbl = e.label or (e.variable.name if e.variable else "")
+    if isinstance(e, TransformEdgeSpec):
+        # ⚠️ A TAG, never a box. The moment a reshape is a shape on the canvas a reader counts it
+        # as a stage, which is the noise this whole construct exists to avoid.
+        how = getattr(e.apply, "__name__", "") if e.apply is not None else "by strategy"
+        return f"-- {lbl} ▸ {how} -> {e.produces.name} -->"
     if e.map_over is not None:
         # ⚠️ A fan-out must be visible, and it must name BOTH ends. An edge drawn like every other
         # one, whose target actually runs N times, misleads about the shape of the work.
