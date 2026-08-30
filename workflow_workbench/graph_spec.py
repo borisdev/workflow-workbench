@@ -12,7 +12,7 @@ from typing import Any, ClassVar
 
 from pydantic_graph import GraphBuilder
 
-from workflow_workbench import built as _built, checks
+from workflow_workbench import checks
 from workflow_workbench.diagram import diagram as _diagram, diff_diagram as _diff_diagram
 from workflow_workbench.spec import (
     DecisionSpec,
@@ -42,14 +42,12 @@ class GraphSpec:
                      EdgeSpec(extract, END))
 
     The DAG is DATA, not code — which is what lets `check()` and `diagram()` run with zero
-    implementations and no engine. `build_pydantic_structure()` is the escape hatch for topologies
-    the declarative form cannot express (`.map()` fan-out, `stream`, `BaseNode`); overriding it
-    opts a design out of the edges-derived wiring, so `check_reachable` is skipped with a stated
-    reason rather than silently passing.
+    implementations and no engine.
 
-    ⚠️ Skipped THERE, not everywhere. `render()` checks the built graph afterwards, so an override
-    no longer costs reachability — and the `edges` declaration becomes a claim verified against
-    the result rather than a decorative one. See `built.py`.
+    ⛔ There is exactly ONE way a graph comes into existence here: `edges` is compiled by `_wire`.
+    No hook, no override, no escape hatch. That is what makes every check meaningful — a
+    declaration that something else could quietly contradict is a decoration, and for a while
+    this class had exactly that.
     """
 
     name: ClassVar[str] = ""
@@ -115,16 +113,7 @@ class GraphSpec:
         findings += checks.check_decisions(self.decisions, self.edges)
         findings += checks.check_step_arity(self.nodes, self.edges,
                                             decisions=self.decisions)
-        if self._overrides_structure():
-            findings.append(
-                f"NOT CHECKED HERE — {type(self).__name__} overrides "
-                f"build_pydantic_structure(), so its real topology is not the `edges` declaration "
-                f"and cannot be verified from the declaration alone. `render()` verifies it "
-                f"against the BUILT graph instead (`built.check_built_topology`), including that "
-                f"every declared edge is honoured. So this is 'not from here', not 'not at all' — "
-                f"but it does mean this design cannot be checked before it is implemented.")
-        else:
-            findings += checks.check_reachable(endpoints, self.edges)
+        findings += checks.check_reachable(endpoints, self.edges)
         if strategy is not None:
             findings += checks.check_bindings(self.nodes, strategy)
             findings += checks.check_implementations(strategy)
@@ -132,17 +121,27 @@ class GraphSpec:
             findings += checks.check_subgraphs(self, strategy, ancestry=(*ancestry, key))
         return findings
 
-    def _overrides_structure(self) -> bool:
-        return type(self).build_pydantic_structure is not GraphSpec.build_pydantic_structure
-
     # ── rendering ───────────────────────────────────────────────────────────────────────────
 
-    def build_pydantic_structure(self, g: GraphBuilder, nodes: dict[NodeSpec, Any]) -> None:
-        """Wire the graph. The default derives every edge from the `edges` declaration.
+    def _wire(self, g: GraphBuilder, nodes: dict[Any, Any]) -> None:
+        """Every edge, derived from the `edges` declaration. There is no other way to wire.
 
-        Override ONLY for topologies the declarative form cannot express — `.map()` fan-out,
-        `g.join()` collect. An override makes `edges` decorative for this class, which is why
-        `check()` reports reachability as NOT CHECKED rather than passing it.
+        ⛔ THIS IS PRIVATE, and that is the design. There was a public
+        `build_pydantic_structure()` here, overridable for topologies the declaration could not
+        express — and it was the ONLY way a built graph could differ from its declaration. Which
+        meant `edges` was decorative for any class that used it, `diagram()` would draw a picture
+        the graph did not match, and reachability was reported NOT CHECKED for the whole design
+        because walking a declaration that no longer built anything would have been checking a
+        fiction.
+
+        It was removed once nothing needed it: `map`, `stream`, joins, decisions, broadcasts and
+        fan-in are all declarable now. What is left un-declarable is `transform` (deliberately —
+        a callable in a declaration is an implementation) and the `BaseNode` API (which cannot be
+        declared, because a BaseNode returns its own successor).
+
+        If you need those, `render()` hands you a real `pydantic_graph.Graph`: take it and use
+        their API directly. A workbench that can express everything is just the engine with extra
+        steps.
         """
         for e in self.edges:
             # ⚠️ A branch is NOT an ordinary edge. It is already attached to the Decision object
@@ -207,7 +206,7 @@ class GraphSpec:
                 node = node.branch(g.match(e.when).to(target))
             built[dec] = node
 
-        self.build_pydantic_structure(g, built)
+        self._wire(g, built)
         return g.build()
 
     def _step_body(self, node: NodeSpec, binding: Any) -> Any:
@@ -255,22 +254,12 @@ class GraphSpec:
                 f"{self.name or type(self).__name__} cannot be rendered with strategy "
                 f"{strategy.name!r}:\n  " + "\n  ".join(hard))
 
-        graph = self._build(strategy)
-
-        # ⛔ THE SECOND HALF, and the one that works on designs the first half cannot read.
-        #
-        # Everything above walked the DECLARATION. A design overriding build_pydantic_structure()
-        # wires itself in code, so that walk would be checking a fiction and `check()` reports
-        # NOT CHECKED instead. Here there is a real Graph that knows its own topology, so the
-        # same questions get real answers however it was wired — and the `edges` declaration
-        # stops being decorative and becomes a claim that is verified against the result.
-        built_findings = _built.check_built_topology(self, graph)
-        built_findings += _built.check_declared_branches(self, graph)
-        if built_findings:
-            raise SpecError(
-                f"{self.name or type(self).__name__} built with strategy {strategy.name!r}, and "
-                f"the result does not match its declaration:\n  " + "\n  ".join(built_findings))
-        return graph
+        # ⚠️ There was a post-build pass here (`built.check_built_topology`) that walked the
+        # compiled graph and verified the declaration against it. It went when
+        # `build_pydantic_structure()` did: with every graph wired from `edges`, the built
+        # topology cannot disagree with the declaration, so those checks could never go red
+        # again. `.claude/rules/checks.md` — a check that cannot fail is decoration.
+        return self._build(strategy)
 
     # ── drawing ─────────────────────────────────────────────────────────────────────────────
 

@@ -89,7 +89,6 @@ paying on rung 2, when `pick` has two implementations and something has to hold 
 | 7 | proof it is a real `Graph` — their `iter()` drives it unchanged | [`stage7_iter.py`](examples/ladder/stage7_iter.py) |
 | 8 | **a declared join** — two producers into one consumer, combined rather than dropped | [`stage8_join.py`](examples/ladder/stage8_join.py) |
 | 9 | **conditional routing** — branches on the type of the answer, converging again | [`stage9_decision.py`](examples/ladder/stage9_decision.py) |
-| 10 | **wire it by hand and stay checked** — the declaration becomes a claim verified against the built graph | [`stage10_hand_wired.py`](examples/ladder/stage10_hand_wired.py) |
 
 ```bash
 uv run python3 -m examples.ladder.stage2_strategies    # any rung
@@ -160,7 +159,16 @@ can declare as DATA — the only form `check()` and `diagram()` can read.
 | `transform` | no | deliberately: a callable on an edge is an implementation in the declaration |
 | `node` / `match_node` | no | a `BaseNode` returns its own successor, so its topology cannot be declared |
 
-**9 fully declarable, 1 partial, 2 not.** Everything not declarable runs *only*
+**9 fully declarable, 1 partial, 2 not.**
+
+⛔ **And there is no escape hatch.** `edges` is the only way a graph gets wired — no override, no
+hook. There used to be one, and it was the single thing that could make a built graph disagree
+with its declaration: `edges` became decorative, `diagram()` could draw a picture the graph did
+not match, and reachability was reported unchecked for the whole design.
+
+So if you need `transform`, a predicate branch, or the `BaseNode` API: **`render()` hands you a
+real `pydantic_graph.Graph` — take it and use their API directly.** A workbench that can express
+everything is the engine with extra steps. Everything not declarable runs *only*
 through `build_pydantic_structure()`.
 
 ⛔ That used to be the end of the story, and it was the expensive part: an override made `edges`

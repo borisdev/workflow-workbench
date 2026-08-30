@@ -199,9 +199,9 @@ bad = [n for n, ok, _ in results if not ok]
 print(f"\n{len(results) - len(bad)}/{len(results)} builder features run\n")
 
 
-# ── what the escape hatch costs ─────────────────────────────────────────────────────────────
+# ── one way in, and that is the point ───────────────────────────────────────────────────────
 print("=" * 92)
-print("can a GraphSpec DECLARE it — or must it be wired by hand in build_pydantic_structure()?")
+print("can a GraphSpec DECLARE it? there is no second route — the declaration is the only wiring.")
 print("=" * 92 + "\n")
 
 from workflow_workbench import (  # noqa: E402
@@ -212,22 +212,10 @@ double = NodeSpec("double", inputs=(n,), outputs=(n,))
 
 
 class Declarative(GraphSpec):
-    """A plain step chain — declared, and therefore checked."""
-
     name = "declarative"
     input_type, output_type = int, int
     nodes = (double,)
     edges = (EdgeSpec(START, double, n), EdgeSpec(double, END, n))
-
-
-class EscapeHatch(Declarative):
-    """The same design, wired by hand. `edges` above is now decorative."""
-
-    name = "escape_hatch"
-
-    def build_pydantic_structure(self, g, nodes):
-        g.add(g.edge_from(g.start_node).to(nodes[double]),
-              g.edge_from(nodes[double]).to(g.end_node))
 
 
 async def dbl(ctx) -> int:
@@ -235,8 +223,12 @@ async def dbl(ctx) -> int:
 
 
 only = StrategySpec("only", {double: dbl})
-print(f"declared design   check() -> {Declarative().check(only) or 'clean, reachability VERIFIED'}")
-print(f"escape-hatch one  check() -> {EscapeHatch().check(only)[0][:88]}...")
+print(f"check() -> {Declarative().check(only) or 'clean, reachability VERIFIED'}")
+print(f"hook to override the wiring? "
+      f"{hasattr(GraphSpec, 'build_pydantic_structure')}")
+print("  ⛔ There was one. It was the ONLY way a built graph could differ from its declaration,")
+print("     which made `edges` decorative for anything that used it. Removed once `map`,")
+print("     `stream`, joins, decisions and fan-in were all declarable.")
 print()
 
 

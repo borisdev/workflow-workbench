@@ -194,19 +194,28 @@ def test_check_with_no_strategy_needs_no_implementations():
     assert Linear().check() == []
 
 
-# ── the override escape hatch ───────────────────────────────────────────────────────────────
+# ── there is exactly one way to wire a graph ────────────────────────────────────────────────
 
-def test_override_reports_reachability_as_not_checked():
-    class Overridden(Linear):
-        def build_pydantic_structure(self, g, nodes):
-            g.add(g.edge_from(g.start_node).to(nodes[load]),
-                  g.edge_from(nodes[load]).to(nodes[parse]),
-                  g.edge_from(nodes[parse]).to(g.end_node))
+def test_there_is_no_wiring_hook_to_override():
+    """⛔ Guards a DELETION, which is the kind that quietly comes back.
 
-    findings = Overridden().check(arm_a)
-    assert any(f.startswith("NOT CHECKED") for f in findings)
-    # NOT CHECKED must not block a render — it is a stated gap, not a failure.
-    assert Overridden().render(arm_a).run_sync(inputs="hi") == "A:HI"
+    `build_pydantic_structure()` was a public, overridable hook — and the only way a built graph
+    could differ from its declaration. While it existed, `edges` was decorative for any class
+    that used it, `diagram()` could draw a picture the graph did not match, and reachability was
+    reported NOT CHECKED for the whole design.
+
+    A subclass defining that method now has no effect at all, which is worse than an error if
+    nobody notices — so this asserts the attribute is gone AND that defining it changes nothing.
+    """
+    assert not hasattr(GraphSpec, "build_pydantic_structure")
+    assert not hasattr(GraphSpec, "_overrides_structure")
+
+    class TriesToOverride(Linear):
+        def build_pydantic_structure(self, g, nodes):    # noqa: ARG002 — deliberately ignored
+            raise AssertionError("this must never be called")
+
+    assert TriesToOverride().check(arm_a) == []
+    assert TriesToOverride().render(arm_a).run_sync(inputs="hi") == "A:HI"
 
 
 # ── diagrams ────────────────────────────────────────────────────────────────────────────────

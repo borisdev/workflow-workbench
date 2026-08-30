@@ -191,7 +191,6 @@ def test_rung7_a_subgraph_stays_out_of_the_parents_event_stream() -> None:
     "their_hello", "stage1_bare", "stage2_strategies", "stage3_new_node",
     "stage4_subgraph", "stage5_battle", "stage6_diagrams", "stage7_iter", "stage8_join",
     "stage9_decision",
-    "stage10_hand_wired",
 ])
 def test_every_rung_runs_as_a_script(module: str) -> None:
     """Weakest test here, and it earns its place: the README prints these commands, and a reader
