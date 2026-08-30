@@ -128,6 +128,7 @@ class GraphSpec:
         if strategy is not None:
             findings += checks.check_bindings(self.nodes, strategy)
             findings += checks.check_implementations(strategy)
+            findings += checks.check_variable_types(self, strategy)
             findings += checks.check_subgraphs(self, strategy, ancestry=(*ancestry, key))
         return findings
 

@@ -25,7 +25,8 @@ from workflow_workbench.spec import (
 )
 
 __all__ = ["check_names", "check_reachable", "check_variables", "check_bindings",
-           "check_implementations", "check_subgraphs", "check_step_arity", "check_decisions"]
+           "check_implementations", "check_subgraphs", "check_step_arity", "check_decisions",
+           "check_variable_types"]
 
 
 def _name(ep: Any) -> str:
@@ -495,3 +496,112 @@ def _mutually_exclusive(arrivals: list[EdgeSpec], groups: list[set[int]]) -> boo
             assigned.append(hits[0])
         return len(set(assigned)) == len(sources)
     return False
+
+
+def _resolve_hint(impl: Any) -> tuple[Any, str | None]:
+    """The implementation's return type as an OBJECT, or a reason it could not be had.
+
+    ⚠️ `inspect.signature` gives a STRING under `from __future__ import annotations`, which every
+    module in this package uses. `typing.get_type_hints` resolves it against the function's own
+    module globals — and raises for a type declared inside a function body, which is ordinary in
+    tests. A failure here is "we could not look", never "it is wrong".
+    """
+    import typing
+
+    try:
+        hints = typing.get_type_hints(impl)
+    except Exception:                       # noqa: BLE001 — unresolvable is a report, not a raise
+        return None, "its annotations could not be resolved"
+    if "return" not in hints:
+        return None, "it has no return annotation"
+    return hints["return"], None
+
+
+def _produces(annotation: Any, declared: Any) -> bool | None:
+    """Does `annotation` satisfy `declared`? `None` means undecidable — never a finding.
+
+    ⛔ Undecidable must not read as a pass OR a failure. A generic alias like `list[Fact]` is not
+    a class and cannot be `issubclass`-tested, and guessing either way is worse than saying so:
+    a false alarm here would land on correct code and teach people to skip the output.
+    """
+    import typing
+
+    if declared is object or annotation is declared:
+        return True                          # `object` accepts anything; identity is identity
+
+    origin = typing.get_origin(annotation)
+    if origin is typing.Union or type(annotation).__name__ == "UnionType":
+        members = typing.get_args(annotation)
+        verdicts = [_produces(m, declared) for m in members]
+        if any(v is None for v in verdicts):
+            return None
+        return all(verdicts)
+
+    if isinstance(annotation, type) and isinstance(declared, type):
+        return issubclass(annotation, declared)
+
+    return None                              # generic aliases, TypeVars, exotic forms
+
+
+def check_variable_types(parent: Any, strategy: StrategySpec) -> list[str]:
+    """Each implementation returns the type its role is declared to produce.
+
+    ⛔ WHY THIS EXISTS, measured before it was written:
+
+        wrong = NodeSpec("wrong", inputs=(text,), outputs=(number,))   # declares int
+        async def returns_a_string(ctx) -> str: ...                    # returns str
+
+        check() -> clean
+        run('x') -> "got 'not an int: x' (str)"
+
+    Nothing objected — not `check()`, not `build(validate_graph_structure=True)`, not the run.
+
+    ⚠️ And this gap is WORSE here than in raw pydantic-graph, which is the uncomfortable part.
+    Their API never asks you to write the type down, so it promises nothing. This library invites
+    `VariableSpec("number", int)`, prints it on the diagram, and then never checked it — a claim
+    the artifact did not deliver, inside the package built to catch exactly that.
+
+    ⚠️ Distinct from `check_variables`, which asks WHICH declared variable crosses a wire. This
+    asks whether the implementation actually produces that variable's TYPE. Two different bugs:
+    one is wiring, one is contract.
+
+    ⚠️ Strict where it can decide, silent-but-stated where it cannot. Unannotated and unresolvable
+    implementations are collected into ONE `NOT CHECKED` line rather than one finding each — a
+    check that emits a finding per unannotated function is noise, and noise is how a check stops
+    being read.
+    """
+    findings: list[str] = []
+    unchecked: list[str] = []
+
+    for node in parent.nodes:
+        impl = strategy.bindings.get(node)
+        if impl is None or isinstance(impl, SubgraphBinding) or not callable(impl):
+            continue                         # other checks own these
+
+        declared, note = _port_type(parent, node, "output")
+        if declared is None or note is not None:
+            continue                         # `check_subgraphs`-style gap; not this check's job
+
+        annotation, why = _resolve_hint(impl)
+        if annotation is None:
+            unchecked.append(f"{node.name} ({getattr(impl, '__name__', impl)}: {why})")
+            continue
+
+        verdict = _produces(annotation, declared)
+        if verdict is None:
+            unchecked.append(
+                f"{node.name} ({_type_name(annotation)} vs {_type_name(declared)}: not decidable)")
+        elif verdict is False:
+            findings.append(
+                f"{strategy.name!r} binds {node.name!r} to "
+                f"{getattr(impl, '__qualname__', impl)}, which returns "
+                f"{_type_name(annotation)} — but {node.name!r} is declared to produce "
+                f"{_type_name(declared)}. The declaration is what the diagram draws and what a "
+                f"reader of this design believes; one of the two is wrong.")
+
+    if unchecked:
+        findings.append(
+            "NOT CHECKED — return types were not compared for: " + "; ".join(sorted(unchecked)) +
+            ". An unannotated or unresolvable implementation cannot be checked against its "
+            "declared output, and saying nothing would make that look like a pass.")
+    return findings
