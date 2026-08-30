@@ -16,6 +16,7 @@ from typing import Any
 from workflow_workbench.spec import (
     DecisionSpec,
     EdgeSpec,
+    MapEdgeSpec,
     TransformEdgeSpec,
     NodeSpec,
     StrategySpec,
@@ -142,35 +143,24 @@ def check_variables(nodes: tuple[NodeSpec, ...], edges: tuple[EdgeSpec, ...]) ->
     """
     findings: list[str] = []
     for e in edges:
-        if e.map_over is not None and e.variable is None:
-            findings.append(
-                f"edge {e!r} fans out to {e.map_over.name!r} but does not name the collection it "
-                f"carries. Both ends of a fan-out must be declared or only one of them is checked.")
-            continue
-        if e.variable is None:
-            continue
         if not is_sentinel(e.source):
-            if e.variable not in e.source.outputs:
+            if e.carries not in e.source.outputs:
                 declared = ", ".join(v.name for v in e.source.outputs) or "nothing"
                 findings.append(
-                    f"edge {e!r} carries {e.variable.name!r}, but {e.source.name!r} does not "
+                    f"edge {e!r} carries {e.carries.name!r}, but {e.source.name!r} does not "
                     f"declare it as an output (it declares: {declared}). Either the edge is wired "
                     f"to the wrong variable or the node's contract is out of date.")
         if not is_sentinel(e.target):
-            # ⚠️ Two shapes where the ends carry DIFFERENT variables, so the target is checked
-            # against what ARRIVES rather than what left:
-            #   fan-out    the collection crosses, one item lands   -> `map_over`
-            #   transform  the value is reshaped on the wire        -> `produces`
-            if isinstance(e, TransformEdgeSpec):
-                arrives = e.produces
-            elif e.map_over is not None:
-                arrives = e.map_over
-            else:
-                arrives = e.variable
+            # ⚠️ `delivers`, not `carries`. On a fan-out or a transform the two ends of one wire
+            # carry DIFFERENT variables, and the target must be checked against what ARRIVES.
+            # `EdgeSpec.delivers` returns `carries` unless a subclass changes it, so this one
+            # line covers all three edge kinds — where there used to be two special cases under
+            # two different field names.
+            arrives = e.delivers
             if arrives not in e.target.inputs:
                 declared = ", ".join(v.name for v in e.target.inputs) or "nothing"
                 how = (" (reshaped on the wire)" if isinstance(e, TransformEdgeSpec)
-                       else " (one item per run)" if e.map_over is not None else "")
+                       else " (one item per run)" if isinstance(e, MapEdgeSpec) else "")
                 findings.append(
                     f"edge {e!r} delivers {arrives.name!r}{how} to {e.target.name!r}, which does "
                     f"not declare it as an input (it declares: {declared}).")
@@ -706,7 +696,7 @@ def check_transform_edges(edges: tuple[EdgeSpec, ...], strategy: StrategySpec | 
             findings.append(
                 f"{e!r} has no `apply=` and no binding, so nothing reshapes the value. It would "
                 f"cross unchanged while the declaration says it becomes "
-                f"{e.produces.name!r} — a lie the diagram would repeat.")
+                f"{e.delivers.name!r} — a lie the diagram would repeat.")
         fn = e.apply if e.apply is not None else (strategy[e] if bound else None)
         if fn is not None and inspect.iscoroutinefunction(fn):
             findings.append(

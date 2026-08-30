@@ -233,49 +233,83 @@ def test_incomplete_child_strategy_is_rejected() -> None:
 
 # ── START and END are exceptions to the one-port rule ───────────────────────────────────────
 
-passthrough = NodeSpec("passthrough")           # declares no variables at all
+passthrough = NodeSpec("passthrough", inputs=(text,), outputs=(text,))
 
 
 class StartEndParent(GraphSpec):
-    """The idiomatic shape from `examples/counter.py`: a node wired straight to the sentinels,
-    declaring nothing, because the graph's own input_type/output_type already says what flows."""
+    """A node wired straight to the sentinels — and now declaring what crosses each wire."""
 
     name = "start_end_parent"
     state_type, deps_type = State, Deps
     input_type, output_type = str, str
     nodes = (passthrough,)
-    edges = (EdgeSpec(START, passthrough), EdgeSpec(passthrough, END))
+    edges = (EdgeSpec(START, passthrough, text), EdgeSpec(passthrough, END, text))
 
 
-def test_a_node_wired_to_the_sentinels_needs_no_declared_variables() -> None:
-    """⚠️ The reason `_port_type` exists rather than a length check. Rejecting this node would
-    mean editing the DESIGN in order to add a strategy — and a NodeSpec that changes when an
-    implementation changes is not the stable thing the whole library is built on."""
+def test_a_node_wired_to_the_sentinels_is_checked_like_any_other() -> None:
+    """⛔ THIS TEST USED TO ASSERT THE OPPOSITE, and the change is worth understanding.
+
+    It was `test_a_node_wired_to_the_sentinels_needs_no_declared_variables`: a NodeSpec declaring
+    nothing, edges carrying nothing, and `_port_type` falling back to the graph's own
+    input_type/output_type to check a subgraph boundary.
+
+    That case no longer exists, and not because anyone removed the fallback. Making
+    `EdgeSpec.carries` REQUIRED made node declarations required too, transitively:
+    `check_variables` demands the target declare what arrives, so a node with an incoming edge
+    must declare that input. A bigger consequence than "declare six variables in the examples",
+    which is what I predicted when proposing it.
+    """
     state = State()
     strategy = StrategySpec("sub", {passthrough: SubgraphBinding(Child(), child_strategy)})
 
     graph = StartEndParent().render(strategy)
-    result = graph.run_sync(inputs=" hi ", state=state, deps=Deps(prefix="ok:"))
-
-    assert result == "ok:HI"
+    assert graph.run_sync(inputs=" hi ", state=state, deps=Deps(prefix="ok:")) == "ok:HI"
     assert state.calls == ["first", "second"]
-    assert StartEndParent().check(strategy) == []          # checked, not merely permitted
+    assert StartEndParent().check(strategy) == []
 
 
-def test_a_sentinel_wired_node_is_still_checked_against_the_graphs_own_types() -> None:
-    """Permissive about the DECLARATION, not about the type. The fallback is a real check."""
+def test_a_node_that_declares_nothing_is_now_refused() -> None:
+    """The transitive consequence, pinned so it is a decision rather than a surprise."""
+    silent = NodeSpec("silent")
+
+    class Silent(GraphSpec):
+        name = "silent_design"
+        state_type, deps_type = State, Deps
+        input_type, output_type = str, str
+        nodes = (silent,)
+        edges = (EdgeSpec(START, silent, text), EdgeSpec(silent, END, text))
+
+    async def anything(ctx) -> str:
+        return ctx.inputs
+
+    findings = Silent().check(StrategySpec("s", {silent: anything}))
+    assert any("does not declare it as an input" in f for f in findings), findings
+
+
+def test_a_subgraph_boundary_is_checked_against_the_declared_variables() -> None:
+    """The subgraph contract still holds; it just reads the declaration rather than a fallback."""
 
     class IntInput(StartEndParent):
         input_type = int
+        nodes = (NodeSpec("passthrough", inputs=(number,), outputs=(number,)),)
+        edges = ()
 
-    strategy = StrategySpec("sub", {passthrough: SubgraphBinding(Child(), child_strategy)})
+    other = IntInput.nodes[0]
 
+    class IntDesign(GraphSpec):
+        name = "int_design"
+        state_type, deps_type = State, Deps
+        input_type, output_type = int, int
+        nodes = (other,)
+        edges = (EdgeSpec(START, other, number), EdgeSpec(other, END, number))
+
+    strategy = StrategySpec("sub", {other: SubgraphBinding(Child(), child_strategy)})
     with pytest.raises(SpecError, match="input_type"):
-        IntInput().render(strategy)
+        IntDesign().render(strategy)
 
 
 mid_first = NodeSpec("mid_first", inputs=(text,), outputs=(text,))
-mid_second = NodeSpec("mid_second")             # declares nothing, and is NOT fed from START
+mid_second = NodeSpec("mid_second", inputs=(text,), outputs=(text,))
 
 
 class MidParent(GraphSpec):
@@ -284,15 +318,20 @@ class MidParent(GraphSpec):
     input_type, output_type = str, str
     nodes = (mid_first, mid_second)
     edges = (EdgeSpec(START, mid_first, text),
-             EdgeSpec(mid_first, mid_second),
-             EdgeSpec(mid_second, END))
+             EdgeSpec(mid_first, mid_second, text),
+             EdgeSpec(mid_second, END, text))
 
 
-def test_an_unresolvable_boundary_says_NOT_CHECKED_and_still_renders() -> None:
-    """There is genuinely no type here to compare against: no declared variable, no sentinel.
+def test_a_mid_chain_subgraph_boundary_is_checked_from_the_declaration() -> None:
+    """⛔ ALSO USED TO ASSERT THE OPPOSITE. It was
+    `test_an_unresolvable_boundary_says_NOT_CHECKED_and_still_renders`: a node mid-chain that
+    declared nothing, where there was genuinely no type to compare a subgraph against, so the
+    finding was `NOT CHECKED` and the render proceeded.
 
-    `.claude/rules/checks.md` — NOT CHECKED and 0 FOUND must never render the same. Reporting a
-    pass would be a claim we did not earn; refusing to render would punish a legal design.
+    Required `carries` removed the whole category. There is no longer an unresolvable boundary,
+    because every edge names a variable and every node must declare it. `_port_type`'s
+    START/END fallback is now unreachable — kept for the moment rather than deleted, because
+    "unreachable today" and "unreachable" are different claims and only one of them is measured.
     """
     async def one(ctx) -> str:
         return ctx.inputs
@@ -300,12 +339,8 @@ def test_an_unresolvable_boundary_says_NOT_CHECKED_and_still_renders() -> None:
     strategy = StrategySpec("sub", {mid_first: one,
                                     mid_second: SubgraphBinding(Child(), child_strategy)})
 
-    findings = MidParent().check(strategy)
-    assert len(findings) == 1
-    assert findings[0].startswith("NOT CHECKED")
-    assert "mid_second" in findings[0] and "input_type" in findings[0]
-
-    MidParent().render(strategy)                # a stated gap does not block a render
+    assert MidParent().check(strategy) == []
+    MidParent().render(strategy)
 
 
 two_in = NodeSpec("two_in", inputs=(text, number), outputs=(text,))
@@ -316,7 +351,7 @@ class MultiPortParent(GraphSpec):
     state_type, deps_type = State, Deps
     input_type, output_type = str, str
     nodes = (two_in,)
-    edges = (EdgeSpec(START, two_in), EdgeSpec(two_in, END, text))
+    edges = (EdgeSpec(START, two_in, text), EdgeSpec(two_in, END, text))
 
 
 def test_a_multi_port_node_is_rejected_rather_than_guessed() -> None:

@@ -49,7 +49,7 @@ class Fixed(GraphSpec):
     input_type, output_type = str, str
     nodes = (propose, cite)
     edges = (EdgeSpec(START, propose, plan),
-             TransformEdgeSpec(propose, cite, draft, produces=edge_list, apply=take_edges),
+             TransformEdgeSpec(propose, cite, draft, edge_list, apply=take_edges),
              EdgeSpec(cite, END, report))
 
 
@@ -87,7 +87,7 @@ def test_the_diagram_tags_the_arrow_rather_than_drawing_a_box() -> None:
 
 # ── a variation point ───────────────────────────────────────────────────────────────────────
 
-shape = TransformEdgeSpec(propose, cite, draft, produces=edge_list)
+shape = TransformEdgeSpec(propose, cite, draft, edge_list)
 
 
 class Varying(Fixed):
@@ -129,7 +129,7 @@ def test_an_unbound_transform_is_refused() -> None:
 
 def test_declaring_both_apply_and_a_binding_is_refused() -> None:
     """Which of the two runs would be a coin toss."""
-    both = TransformEdgeSpec(propose, cite, draft, produces=edge_list, apply=take_edges)
+    both = TransformEdgeSpec(propose, cite, draft, edge_list, apply=take_edges)
 
     class Both(Fixed):
         name = "both"
@@ -155,7 +155,7 @@ def test_an_async_transform_is_refused() -> None:
 def test_the_target_is_checked_against_produces_not_against_the_wire() -> None:
     """The two ends carry different variables, which is the whole shape of a transform edge."""
     wrong = VariableSpec("wrong", list)
-    bad_edge = TransformEdgeSpec(propose, cite, draft, produces=wrong, apply=take_edges)
+    bad_edge = TransformEdgeSpec(propose, cite, draft, wrong, apply=take_edges)
 
     class Mismatched(Fixed):
         name = "mismatched"
@@ -165,13 +165,25 @@ def test_the_target_is_checked_against_produces_not_against_the_wire() -> None:
     assert any("reshaped on the wire" in f and "wrong" in f for f in findings), findings
 
 
-def test_produces_is_required() -> None:
-    with pytest.raises(SpecError, match="needs `produces="):
+def test_delivers_is_required() -> None:
+    """⚠️ And the error must be BUILDABLE. `__post_init__` puts `{self!r}` in its own message, so
+    a repr assuming `delivers` is set replaced the real finding with an AttributeError raised
+    from inside the reporting — the check worked and could not say so."""
+    with pytest.raises(SpecError, match="needs `delivers`"):
         TransformEdgeSpec(propose, cite, draft)
 
 
-def test_a_transform_edge_may_not_also_fan_out() -> None:
-    """Two things wearing one edge. Declare the fan-out, then the reshape."""
-    with pytest.raises(SpecError, match="both `map_over` and a transform"):
-        TransformEdgeSpec(propose, cite, draft, produces=edge_list,
-                          apply=take_edges, map_over=edge_list)
+def test_fan_out_and_reshape_are_separate_types() -> None:
+    """⛔ Used to be a guard: `map_over` and a transform on one edge was refused in
+    `__post_init__`. The guard is GONE because the shape is now unconstructible — fan-out is
+    `MapEdgeSpec` and reshape is `TransformEdgeSpec`, and no edge is both.
+
+    That is the better fix. A guard against an illegal combination is a guard that exists because
+    the types allowed it; making it unrepresentable deletes the guard and the class of bug.
+    """
+    from workflow_workbench import MapEdgeSpec
+
+    assert not issubclass(MapEdgeSpec, TransformEdgeSpec)
+    assert not issubclass(TransformEdgeSpec, MapEdgeSpec)
+    assert not hasattr(TransformEdgeSpec(propose, cite, draft, edge_list, apply=take_edges),
+                       "map_over")

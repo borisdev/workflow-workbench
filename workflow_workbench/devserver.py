@@ -91,8 +91,13 @@ def spec_payload(spec: GraphSpec, strategies: list[StrategySpec]) -> dict[str, A
             "id": f"{_endpoint_id(e.source)}->{_endpoint_id(e.target)}",
             "source": _endpoint_id(e.source),
             "target": _endpoint_id(e.target),
-            "variable": e.variable.name if e.variable else None,
-            "type": getattr(e.variable.type, "__name__", None) if e.variable else None,
+            # ⚠️ The WIRE field stays `variable` while the spec field is `carries`. The payload
+            # is the viewer's contract and its bundle is built JS; renaming it would be churn
+            # across the frontend for no gain. Recorded as a known, deliberate difference rather
+            # than left to be discovered — `delivers` is what the target actually receives.
+            "variable": e.carries.name,
+            "type": getattr(e.carries.type, "__name__", None),
+            "delivers": e.delivers.name if e.delivers is not e.carries else None,
         }
         for e in spec.edges
     ]

@@ -17,6 +17,7 @@ from workflow_workbench.diagram import diagram as _diagram, diff_diagram as _dif
 from workflow_workbench.spec import (
     DecisionSpec,
     EdgeSpec,
+    MapEdgeSpec,
     TransformEdgeSpec,
     JoinSpec,
     NodeSpec,
@@ -176,10 +177,8 @@ class GraphSpec:
             src = g.start_node if isinstance(e.source, _Start) else nodes[e.source]
             dst = g.end_node if isinstance(e.target, _End) else nodes[e.target]
             builder = g.edge_from(src)
-            label = e.label or (e.variable.name if e.variable else "")
-            if label:
-                builder = builder.label(label)
-            if e.map_over is not None:
+            builder = builder.label(e.label or e.carries.name)
+            if isinstance(e, MapEdgeSpec):
                 # fan out: the target runs once per item of the collection on this edge
                 builder = builder.map()
             if isinstance(e, TransformEdgeSpec):

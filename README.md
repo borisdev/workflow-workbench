@@ -295,7 +295,7 @@ g.add_edge(a, b, label='count')
 Workflow Workbench:
 
 ```python
-EdgeSpec(a, b, count)          # the variable IS the label
+EdgeSpec(a, b, count)          # `carries` IS the label
 ```
 
 ### `join` — **yes**
@@ -328,10 +328,10 @@ g.edge_from(g.start_node).map().to(square)
 Workflow Workbench:
 
 ```python
-EdgeSpec(START, square, numbers, map_over=number)
+MapEdgeSpec(START, square, numbers, number)
 ```
 
-> `variable` is the collection on the wire, `map_over` the item the target receives. Naming both is what keeps both ends checked.
+> `carries` is the collection on the wire, `delivers` the item the target receives. Naming both is what keeps both ends checked.
 
 ### `decision` — **yes**
 
@@ -368,7 +368,7 @@ Workflow Workbench:
 
 ```python
 split = NodeSpec("split", inputs=(text,), outputs=(words,), streams=True)
-EdgeSpec(split, collect, words, map_over=word)   # its output is an AsyncIterable
+MapEdgeSpec(split, collect, words, word)   # its output is an AsyncIterable
 ```
 
 > A flag on NodeSpec, not its own type: a stream IS a role a strategy fills.
@@ -437,9 +437,9 @@ Workflow Workbench:
 
 ```python
 # fixed — part of the design, like a JoinSpec's reducer:
-TransformEdgeSpec(propose, cite, draft, produces=edge_list, apply=take_edges)
+TransformEdgeSpec(propose, cite, draft, edge_list, apply=take_edges)
 # or a variation point — every strategy binds it, and varies() reports it:
-shape = TransformEdgeSpec(propose, cite, draft, produces=edge_list)
+shape = TransformEdgeSpec(propose, cite, draft, edge_list)
 StrategySpec("all", {..., shape: all_edges})
 ```
 

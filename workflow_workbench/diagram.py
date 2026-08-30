@@ -19,6 +19,7 @@ from typing import Any
 from workflow_workbench.spec import (
     DecisionSpec,
     EdgeSpec,
+    MapEdgeSpec,
     TransformEdgeSpec,
     JoinSpec,
     NodeSpec,
@@ -46,25 +47,24 @@ def impl_name(impl: Any) -> str:
 
 
 def _arrow(e: EdgeSpec) -> str:
-    """The edge's label. For a BRANCH that is the type it matches, not the variable it carries.
+    """The edge's label — and for the two kinds that change the value, BOTH ends.
 
-    ⚠️ Every branch of a decision usually carries the same variable, so labelling them by variable
-    draws two identical arrows out of one router — a picture that hides the only thing a reader
-    is looking at it to learn.
+    ⚠️ A branch is labelled by the type it matches, not the variable it carries: every branch of
+    one router usually carries the same variable, so labelling by variable draws two identical
+    arrows out of the router and hides the only thing the picture is for.
+
+    ⚠️ A transform is a TAG, never a box. The moment a reshape is a shape on the canvas a reader
+    counts it as a stage, which is the noise the whole construct exists to avoid.
     """
     if e.when is not None:
         return f"-- {getattr(e.when, '__name__', e.when)} -->"
-    lbl = e.label or (e.variable.name if e.variable else "")
+    lbl = e.label or e.carries.name
     if isinstance(e, TransformEdgeSpec):
-        # ⚠️ A TAG, never a box. The moment a reshape is a shape on the canvas a reader counts it
-        # as a stage, which is the noise this whole construct exists to avoid.
         how = getattr(e.apply, "__name__", "") if e.apply is not None else "by strategy"
-        return f"-- {lbl} ▸ {how} -> {e.produces.name} -->"
-    if e.map_over is not None:
-        # ⚠️ A fan-out must be visible, and it must name BOTH ends. An edge drawn like every other
-        # one, whose target actually runs N times, misleads about the shape of the work.
-        return f"== {lbl} : each {e.map_over.name} ==>"
-    return f"-- {lbl} -->" if lbl else "-->"
+        return f"-- {lbl} ▸ {how} -> {e.delivers.name} -->"
+    if isinstance(e, MapEdgeSpec):
+        return f"== {lbl} : each {e.delivers.name} ==>"
+    return f"-- {lbl} -->"
 
 
 def _node_id(ep: Any) -> str:

@@ -51,6 +51,13 @@ class Edge(BaseModel):
     target: str
     variable: str | None = None
     type: str | None = None
+    delivers: str | None = None
+    """What ARRIVES at the target, when it differs from `variable` — a fan-out delivering one item
+    of a collection, or a reshape on the wire. `None` means the two ends carry the same value.
+
+    ⚠️ The spec-side names are `carries` and `delivers`; this field stays `variable` because it is
+    the viewer's contract and its bundle is built JS. A known, deliberate difference between the
+    declaration vocabulary and the wire vocabulary — recorded rather than left to be found."""
 
 
 class Binding(BaseModel):

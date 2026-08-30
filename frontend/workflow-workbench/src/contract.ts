@@ -26,6 +26,9 @@ export interface Edge {
   target: string;
   variable?: string | null;
   type?: string | null;
+  /** What ARRIVES at the target when it differs from `variable` — one item of a
+   *  fanned-out collection, or a value reshaped on the wire. */
+  delivers?: string | null;
 }
 
 /**

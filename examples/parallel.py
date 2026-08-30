@@ -4,15 +4,15 @@ A variation of their `parallel_processing.py` from
 <https://pydantic.dev/docs/ai/graph/builder/>: map over a list, transform each item, reduce.
 
 ⛔ THIS FILE USED TO OVERRIDE `build_pydantic_structure()`, and its docstring said fan-out was
-"THE ONE CASE THE DECLARATIVE FORM CANNOT EXPRESS". That is no longer true. `map_over` on an edge
+"THE ONE CASE THE DECLARATIVE FORM CANNOT EXPRESS". That is no longer true. `MapEdgeSpec`
 and `JoinSpec` in `joins` say the same thing as data, so this design is checked, diagrammed and
 diffed like any other — where before, reaching for `.map()` cost reachability checking on every
 node in the file.
 
-    EdgeSpec(START, transform, numbers, map_over=number)    the collection crosses, one item lands
+    MapEdgeSpec(START, transform, numbers, number)          the collection crosses, one item lands
     JoinSpec("collect", reduce_sum, initial=0, ...)         and the items are reduced
 
-⚠️ `map_over` names the ITEM, not just "this fans out". Both ends get checked that way: the wire
+⚠️ `carries` is the collection, `delivers` the item. Both ends get checked that way: the wire
 really carries `numbers`, and `transform` really consumes a `number`. A bool was tried first and
 `check_variables` immediately caught the hole — the edge said `numbers`, the node said `number`.
 
@@ -27,6 +27,7 @@ from workflow_workbench import (
     START,
     EdgeSpec,
     GraphSpec,
+    MapEdgeSpec,
     JoinSpec,
     NodeSpec,
     StrategySpec,
@@ -52,7 +53,7 @@ class ParallelProcessing(GraphSpec):
     input_type, output_type = list[int], int
     nodes = (transform,)
     joins = (collect,)
-    edges = (EdgeSpec(START, transform, numbers, map_over=number),
+    edges = (MapEdgeSpec(START, transform, numbers, number),
              EdgeSpec(transform, collect, number),
              EdgeSpec(collect, END, total))
 

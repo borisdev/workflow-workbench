@@ -18,9 +18,13 @@ class CounterState:
     value: int = 0
 
 
+seed = VariableSpec("seed", int)
 count = VariableSpec("count", int)
 
-increment = NodeSpec("increment", outputs=(count,))
+# ⚠️ `increment` DOES consume the graph input — `add_one` reads `ctx.inputs`. Declaring it
+# was optional while `EdgeSpec.carries` was; now that every edge names what it carries, the
+# node contract has to be honest about receiving it.
+increment = NodeSpec("increment", inputs=(seed,), outputs=(count,))
 double_it = NodeSpec("double_it", inputs=(count,), outputs=(count,))
 
 
@@ -31,7 +35,7 @@ class Counter(GraphSpec):
     state_type, input_type, output_type = CounterState, int, int
     nodes = (increment, double_it)
     edges = (
-        EdgeSpec(START, increment),
+        EdgeSpec(START, increment, seed),
         EdgeSpec(increment, double_it, count),
         EdgeSpec(double_it, END, count),
     )

@@ -48,7 +48,7 @@ FEATURES: tuple[Feature, ...] = (
     Feature(
         "add / add_edge / label", "yes",
         "g.add(g.edge_from(a).to(b))\ng.add_edge(a, b, label='count')",
-        "EdgeSpec(a, b, count)          # the variable IS the label",
+        "EdgeSpec(a, b, count)          # `carries` IS the label",
         "",
     ),
     Feature(
@@ -63,8 +63,8 @@ FEATURES: tuple[Feature, ...] = (
     Feature(
         "map / add_mapping_edge", "yes",
         "g.edge_from(g.start_node).map().to(square)",
-        "EdgeSpec(START, square, numbers, map_over=number)",
-        "`variable` is the collection on the wire, `map_over` the item the target receives. "
+        "MapEdgeSpec(START, square, numbers, number)",
+        "`carries` is the collection on the wire, `delivers` the item the target receives. "
         "Naming both is what keeps both ends checked.",
     ),
     Feature(
@@ -82,7 +82,7 @@ FEATURES: tuple[Feature, ...] = (
         "stream", "yes",
         "@g.stream\nasync def split(ctx):\n    for w in ctx.inputs.split():\n        yield w",
         'split = NodeSpec("split", inputs=(text,), outputs=(words,), streams=True)\n'
-        "EdgeSpec(split, collect, words, map_over=word)   # its output is an AsyncIterable",
+        "MapEdgeSpec(split, collect, words, word)   # its output is an AsyncIterable",
         "A flag on NodeSpec, not its own type: a stream IS a role a strategy fills.",
     ),
     Feature(
@@ -114,9 +114,9 @@ FEATURES: tuple[Feature, ...] = (
         "transform", "yes",
         "g.edge_from(a).transform(lambda ctx: ctx.inputs.edges).to(b)",
         "# fixed — part of the design, like a JoinSpec's reducer:\n"
-        "TransformEdgeSpec(propose, cite, draft, produces=edge_list, apply=take_edges)\n"
+        "TransformEdgeSpec(propose, cite, draft, edge_list, apply=take_edges)\n"
         "# or a variation point — every strategy binds it, and varies() reports it:\n"
-        "shape = TransformEdgeSpec(propose, cite, draft, produces=edge_list)\n"
+        "shape = TransformEdgeSpec(propose, cite, draft, edge_list)\n"
         'StrategySpec("all", {..., shape: all_edges})',
         "Emits NO node, exactly as theirs does, so the diagram tags the arrow rather than adding "
         "a box — a reshape is not a stage and drawing it as one misleads. `variable` is what "

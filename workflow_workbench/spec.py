@@ -5,6 +5,7 @@
     EdgeSpec         source -> target, carrying one named variable
     JoinSpec         the one node kind that COMBINES several arrivals; no implementation to bind
     DecisionSpec     routes on the TYPE of the value; its branches are edges carrying `when=`
+    MapEdgeSpec        fan out: the target runs once per item of the collection
     TransformEdgeSpec  a cheap synchronous reshape ON THE WIRE — no node, still declared
     SubgraphBinding  a whole child design, used as ONE node's implementation
     StrategySpec     a complete NodeSpec -> implementation mapping
@@ -21,7 +22,8 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from workflow_workbench.graph_spec import GraphSpec
 
-__all__ = ["SpecError", "VariableSpec", "NodeSpec", "EdgeSpec", "TransformEdgeSpec",
+__all__ = ["SpecError", "VariableSpec", "NodeSpec", "EdgeSpec", "MapEdgeSpec",
+           "TransformEdgeSpec",
            "JoinSpec", "DecisionSpec", "SubgraphBinding", "StrategySpec", "START", "END",
            "Endpoint", "is_sentinel"]
 
@@ -176,62 +178,64 @@ class NodeSpec:
 
 @dataclass(frozen=True)
 class EdgeSpec:
-    """One wire: `source -> target`, carrying `variable`.
+    """One wire: `source -> target`, carrying `carries`.
+
+    An edge is not an attribute bag — it is a small INSTRUCTION LIST for the executor, run after
+    the source finishes and before the target starts. That is literally what it compiles to;
+    pydantic-graph builds each one as a `Path` of markers:
+
+        Path(items=[LabelMarker(label='handled'), DestinationMarker(destination_id='report')])
+
+    The subclasses add instructions to that list:
+
+        EdgeSpec           deliver what you were given
+        MapEdgeSpec        deliver each ITEM of what you were given, one run per item
+        TransformEdgeSpec  reshape it with a sync callable, then deliver that
+
+    ⚠️ `carries` is REQUIRED, and was optional until it was measured: every edge in nobsmed's real
+    design already named one, positionally. Only toy examples skipped it — and `check_variables`
+    SKIPS an unnamed edge, so optional meant an edge nobody checked, silently. `0 FOUND` and
+    `NOT CHECKED` rendering the same, one more time.
+
+    ⚠️ `carries` names WHICH declared value crosses this wire, and it is checked PER EDGE. A node
+    with two outputs wired to two targets can have them swapped, and a check that merely
+    aggregates "is the set of outputs covered by the set of consumed inputs" passes on the swap.
+    See `checks.check_variables`.
+
+    ⚠️ `when` makes this edge a BRANCH of a `DecisionSpec` source: taken when the routed value is
+    an instance of that type. Legal only on an edge leaving a decision, required on every edge
+    that does — `check_decisions` enforces both.
 
     ⛔ FOR A FUTURE AGENT: do not add a `matches=` predicate field here. It looks like an obvious
-    omission and is a refusal: a predicate on an edge is an implementation the diagram cannot
-    draw and `varies()` cannot compare. Return a discriminating TYPE from a step and branch on it
-    with `when=` — `examples/ladder/stage9_decision.py` shows it, and the routing becomes a value
-    you can see and battle instead of a lambda.
+    omission and is a refusal: a predicate on an edge is a decision the diagram cannot draw and
+    `varies()` cannot compare. Return a discriminating TYPE from a step and branch on it with
+    `when=` — `examples/ladder/stage9_decision.py` shows it, and the routing becomes a value you
+    can see and battle instead of a lambda.
 
     ⚠️ A `transform=` field WAS refused on that same argument, and the argument was wrong. See
-    `TransformEdgeSpec` below: a reshape on the wire keeps every property that mattered — bound
-    by a strategy, reported by `varies()`, checked against `produces` — while emitting no node.
-    What was actually wrong was insisting it be a NodeSpec, which put a box on the canvas for
+    `TransformEdgeSpec`: a reshape on the wire keeps every property that mattered — bound by a
+    strategy, reported by `varies()`, checked against `delivers` — while emitting no node. What
+    was actually wrong was insisting it be a NodeSpec, which puts a box on the canvas for
     something that is not a stage. Recorded because the shape of the mistake generalises: an
     invariant I had written ("strategies bind nodes") was defended as though it were a law.
-
-    ⚠️ `variable` names WHICH declared value crosses this wire, and it is checked per-edge. A node
-    with two outputs wired to two targets can have them swapped, and a check that merely aggregates
-    "does the set of outputs match the set of consumed inputs" passes on the swap — verified before
-    this type existed. See `checks.check_variables`.
-
-    `variable=None` is legal and means "the edge carries whatever the source produced" — the
-    ordinary single-output case, where naming it adds nothing to check.
-
-    ⚠️ `when` is what makes this edge a BRANCH of a `DecisionSpec`: it is taken when the routed
-    value is an instance of that type. Only legal on an edge leaving a DecisionSpec, and required
-    on every edge that leaves one — `check_decisions` enforces both, since a branchless decision
-    routes nowhere and a conditionless edge out of one cannot be built.
-
-    ⚠️ The condition lives on the EDGE, not inside the DecisionSpec, on purpose: `edges` stays the
-    single place the topology is written down, so `check_reachable` and `diagram()` keep working
-    on branching designs without knowing decisions exist.
-
-    ⚠️ `map_over` fans this edge out: `variable` is the COLLECTION on the wire, `map_over` is the
-    ITEM the target receives, and the target runs once per item. pydantic-graph's `.map()`, as
-    data rather than a call, so a fan-out design stays declared instead of hand-wired.
-
-        EdgeSpec(START, square, numbers, map_over=number)   # carries `numbers`, square gets one
-        JoinSpec("total", reduce_sum, initial=0, ...)       # and the join collects them
-
-    ⛔ It names the item because a bool was not enough, and running it is what showed that. With
-    `map_over=True` the edge carried `numbers` while `square` declared `number`, and
-    `check_variables` — correctly — called that a wiring error. Naming both ends keeps BOTH sides
-    checked: the source really produces the collection, and the target really consumes the item.
-
-    ⚠️ NOT needed for a broadcast or a multi-source fan-in. Measured: two edges out of one source
-    build the same topology as an explicit `broadcast()` (only the fork node's generated name
-    differs), and separate edges into one target are byte-identical to `edge_from(a, b).to(t)`.
-    Adding vocabulary for either would have been vocabulary for nothing.
     """
 
     source: Any                       # NodeSpec | DecisionSpec | _Start
     target: Any                       # NodeSpec | JoinSpec | DecisionSpec | _End
-    variable: VariableSpec | None = None
-    label: str = ""
-    when: type | None = None
-    map_over: VariableSpec | None = None
+    carries: VariableSpec
+    label: str = field(default="", kw_only=True)
+    when: type | None = field(default=None, kw_only=True)
+
+    @property
+    def delivers(self) -> VariableSpec:
+        """What ARRIVES at the target. Same as `carries` unless a subclass changes it.
+
+        ⚠️ One property, where there used to be two fields under two names — `map_over` on the
+        base and `produces` on the transform subclass, both meaning "what arrives when it differs
+        from what left". Two words for one concept is `domain-language.md` rule 1, and I invented
+        the second without noticing I had already invented the first.
+        """
+        return self.carries
 
     def __post_init__(self) -> None:
         if isinstance(self.source, _End):
@@ -240,24 +244,87 @@ class EdgeSpec:
             raise SpecError("an edge cannot end at START")
         if self.source is self.target:
             raise SpecError(f"self-loop on {self.source!r}: an edge from a node to itself")
+        if not isinstance(self.carries, VariableSpec):
+            raise SpecError(
+                f"edge {_ep_name(self.source)} -> {_ep_name(self.target)} must name what it "
+                f"carries. An unnamed edge is skipped by `check_variables`, so it is not a "
+                f"shorter declaration — it is an unchecked one.")
 
     def __repr__(self) -> str:
-        v = f" [{self.variable.name}]" if self.variable else ""
-        return f"EdgeSpec({_ep_name(self.source)} -> {_ep_name(self.target)}{v})"
+        # ⚠️ Must survive a half-built edge: `__post_init__` puts `{self!r}` in its own error
+        # message, so a repr that assumes `delivers` is set replaces the real finding with an
+        # AttributeError from inside the reporting.
+        d = self.delivers
+        arrives = "" if d is self.carries or d is None else f" -> {d.name}"
+        return (f"{type(self).__name__}({_ep_name(self.source)} -> {_ep_name(self.target)}"
+                f" [{self.carries.name}{arrives}])")
+
+
+@dataclass(frozen=True, repr=False)
+class MapEdgeSpec(EdgeSpec):
+    """Fan out: `carries` is a collection, and the target runs ONCE PER `delivers`.
+
+    ## The whole idea, in one shopping list
+
+    You have a list. You have a step that handles ONE thing. Those do not fit:
+
+        shopping = VariableSpec("shopping", list)    # ["milk", "eggs", "bread"]
+        item     = VariableSpec("item", str)         # "milk"
+        cost     = VariableSpec("cost", float)
+
+        price = NodeSpec("price", inputs=(item,), outputs=(cost,))   # ONE item -> ONE price
+        total = JoinSpec("total", reduce_sum, initial=0.0,
+                         inputs=(cost,), outputs=(bill,))
+
+        MapEdgeSpec(START, price, shopping, item)     # the list crosses, one item lands
+        EdgeSpec(price, total, cost)
+        EdgeSpec(total, END, bill)
+
+    `price` never sees the list. It is called three times, once per item, and `total` adds up the
+    three answers.
+
+    ## Why not just loop inside the step
+
+    You can, and then `price` declares `inputs=(shopping,)` — it takes a LIST. Three things are
+    lost, and the first is the one that matters:
+
+        the contract lies    "price" now means "price everything", and a reader of the design
+                             cannot tell whether it handles one or many
+        no concurrency       the engine cannot run the items in parallel; your loop is opaque
+        no fan-out on the    the diagram draws one plain arrow, so nothing shows that the work
+        picture              multiplies here
+
+    The rule of thumb: **if a step handles one of something, say so in its contract, and let the
+    edge do the multiplying.**
+
+    ⚠️ Almost always paired with a `JoinSpec`. The fan-out makes N results; something has to put
+    them back together, and a step cannot (it receives one value at a time).
+
+    ⚠️ NOT needed for a broadcast or a multi-source fan-in. Measured: two edges out of one source
+    build the same topology as an explicit `broadcast()`, and separate edges into one target are
+    byte-identical to `edge_from(a, b).to(t)`.
+    """
+
+    delivers: VariableSpec = None  # type: ignore[assignment]
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        if not isinstance(self.delivers, VariableSpec):
+            raise SpecError(f"{self!r} needs `delivers` — the ITEM the target receives, which is "
+                            f"not the collection on the wire.")
 
 
 def _ep_name(ep: Any) -> str:
     return "START" if isinstance(ep, _Start) else "END" if isinstance(ep, _End) else ep.name
 
 
-@dataclass(frozen=True, eq=False)
+@dataclass(frozen=True, eq=False, repr=False)
 class TransformEdgeSpec(EdgeSpec):
     """A cheap SYNCHRONOUS reshape that happens ON THE WIRE, creating no node.
 
-        prune = TransformEdgeSpec(propose, cite, draft_graph,
-                                  produces=edge_list, apply=take_edges)
+        prune = TransformEdgeSpec(propose, cite, draft_graph, edge_list, apply=take_edges)
 
-    `variable` is what leaves the source; `produces` is what arrives at the target. In between,
+    `carries` is what leaves the source; `delivers` is what arrives at the target. In between,
     one sync callable. pydantic-graph builds this with `.transform()` and emits NO node for it —
     so the diagram draws it as a tag on the arrow, not as a stage.
 
@@ -298,28 +365,24 @@ class TransformEdgeSpec(EdgeSpec):
     beside `LabelMarker` rather than beside a node type. Do not cite it back as theirs.
     """
 
-    produces: VariableSpec | None = None
+    delivers: VariableSpec = None  # type: ignore[assignment]
     apply: Callable[..., Any] | None = None
 
     def __post_init__(self) -> None:
         super().__post_init__()
-        if self.produces is None:
+        if not isinstance(self.delivers, VariableSpec):
             raise SpecError(
-                f"{self!r} needs `produces=` — the variable that ARRIVES at the target. Without "
-                f"it the transform's output is undeclared, so nothing can check what it returns "
-                f"and the diagram cannot say what crosses the second half of the wire.")
-        if self.map_over is not None:
-            raise SpecError(
-                f"{self!r} sets both `map_over` and a transform. Fan-out and reshape on one wire "
-                f"is two things wearing one edge; use a plain fan-out edge into a transform edge.")
+                f"{self!r} needs `delivers` — the variable that ARRIVES at the target. Without it "
+                f"the transform's output is undeclared, so nothing can check what it returns and "
+                f"the diagram cannot say what crosses the second half of the wire.")
         if self.apply is not None and not callable(self.apply):
             raise SpecError(f"{self!r}: `apply` must be callable")
 
     def __repr__(self) -> str:
         how = getattr(self.apply, "__name__", "bound by strategy") if self.apply else "unbound"
+        arrives = self.delivers.name if self.delivers is not None else "?"
         return (f"TransformEdgeSpec({_ep_name(self.source)} -> {_ep_name(self.target)}"
-                f" [{self.variable.name if self.variable else '?'} -> "
-                f"{self.produces.name if self.produces else '?'}], {how})")
+                f" [{self.carries.name} -> {arrives}], {how})")
 
 
 @dataclass(frozen=True, eq=False)

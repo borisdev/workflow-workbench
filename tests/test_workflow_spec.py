@@ -76,14 +76,14 @@ def test_list_inputs_refused():
 
 def test_edge_cannot_start_at_end_or_end_at_start():
     with pytest.raises(SpecError):
-        EdgeSpec(END, load)
+        EdgeSpec(END, load, text)
     with pytest.raises(SpecError):
-        EdgeSpec(load, START)
+        EdgeSpec(load, START, text)
 
 
 def test_self_loop_refused():
     with pytest.raises(SpecError, match="self-loop"):
-        EdgeSpec(load, load)
+        EdgeSpec(load, load, text)
 
 
 # ── checks ──────────────────────────────────────────────────────────────────────────────────
@@ -102,7 +102,7 @@ def test_check_reachable_finds_an_orphan():
 
 def test_check_reachable_terminates_on_a_cycle():
     a, b = NodeSpec("a", outputs=(text,)), NodeSpec("b", inputs=(text,), outputs=(text,))
-    edges = (EdgeSpec(START, a), EdgeSpec(a, b, text), EdgeSpec(b, a, text), EdgeSpec(b, END, text))
+    edges = (EdgeSpec(START, a, text), EdgeSpec(a, b, text), EdgeSpec(b, a, text), EdgeSpec(b, END, text))
     check_reachable((a, b), edges)          # must return, not hang
 
 

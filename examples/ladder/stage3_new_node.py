@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from examples.ladder.stage1_bare import (
     Guest,
+    name_in,
     compose,
     compose_sentence,
     greeting,
@@ -49,7 +50,7 @@ class TranslatedHello(GraphSpec):
     state_type = Guest
     input_type, output_type = str, str
     nodes = (pick, compose, translate)
-    edges = (EdgeSpec(START, pick),
+    edges = (EdgeSpec(START, pick, name_in),
              EdgeSpec(pick, compose, salutation),
              EdgeSpec(compose, translate, greeting),
              EdgeSpec(translate, END, spoken))

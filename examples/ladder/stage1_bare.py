@@ -46,10 +46,11 @@ class Guest:
 # VariableSpecs: no type checker can tell you `compose` was wired to the wrong one, because
 # there is only one type in the room. A name can.
 
+name_in = VariableSpec("name_in", str)
 salutation = VariableSpec("salutation", str)
 greeting = VariableSpec("greeting", str)
 
-pick = NodeSpec("pick", outputs=(salutation,))
+pick = NodeSpec("pick", inputs=(name_in,), outputs=(salutation,))
 """Choose how to address the guest. THE ROLE — not one way of doing it."""
 
 compose = NodeSpec("compose", inputs=(salutation,), outputs=(greeting,))
@@ -63,7 +64,7 @@ class HelloWorld(GraphSpec):
     state_type = Guest
     input_type, output_type = str, str
     nodes = (pick, compose)
-    edges = (EdgeSpec(START, pick),
+    edges = (EdgeSpec(START, pick, name_in),
              EdgeSpec(pick, compose, salutation),
              EdgeSpec(compose, END, greeting))
 
