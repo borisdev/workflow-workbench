@@ -255,3 +255,215 @@ A downstream design related to community requests for
 [reusable/extensible nodes](https://github.com/pydantic/pydantic-ai/issues/798) and
 [reusable subgraphs](https://github.com/pydantic/pydantic-ai/issues/3901). It is a complementary
 layer over native Pydantic Graph, not a proposal to change it.
+
+<!-- parity:start -->
+## Appendix: every Pydantic Graph builder feature, theirs beside ours
+
+<!-- GENERATED from workflow_workbench/parity.py — do not edit by hand. -->
+<!-- Regenerate: python3 -m workflow_workbench.parity -->
+
+### `step` — **yes**
+
+Pydantic Graph:
+
+```python
+@g.step
+async def double(ctx) -> int:
+    return ctx.inputs * 2
+```
+
+Workflow Workbench:
+
+```python
+double = NodeSpec("double", inputs=(n,), outputs=(n,))
+# and a strategy binds the body:
+StrategySpec("s", {double: double_impl})
+```
+
+> Theirs names the node after the function. Ours names it in the DESIGN, so two strategies produce the same node ids and can be compared.
+
+### `add / add_edge / label` — **yes**
+
+Pydantic Graph:
+
+```python
+g.add(g.edge_from(a).to(b))
+g.add_edge(a, b, label='count')
+```
+
+Workflow Workbench:
+
+```python
+EdgeSpec(a, b, count)          # the variable IS the label
+```
+
+### `join` — **yes**
+
+Pydantic Graph:
+
+```python
+collect = g.join(reduce_sum, initial=0)
+```
+
+Workflow Workbench:
+
+```python
+collect = JoinSpec("collect", reduce_sum, initial=0,
+                   inputs=(number,), outputs=(total,))
+class Design(GraphSpec):
+    joins = (collect,)
+```
+
+> In `joins`, not `nodes`: a reducer is `(current, input) -> current`, so there is no implementation for a strategy to bind.
+
+### `map / add_mapping_edge` — **yes**
+
+Pydantic Graph:
+
+```python
+g.edge_from(g.start_node).map().to(square)
+```
+
+Workflow Workbench:
+
+```python
+EdgeSpec(START, square, numbers, map_over=number)
+```
+
+> `variable` is the collection on the wire, `map_over` the item the target receives. Naming both is what keeps both ends checked.
+
+### `decision` — **yes**
+
+Pydantic Graph:
+
+```python
+d = g.decision()
+d = d.branch(g.match(Urgent).to(escalate))
+d = d.branch(g.match(Routine).to(research))
+```
+
+Workflow Workbench:
+
+```python
+route = DecisionSpec("route")
+EdgeSpec(route, escalate, v, when=Urgent)
+EdgeSpec(route, research, v, when=Routine)
+```
+
+> The condition lives on the EDGE so `edges` stays the only place topology is written. A decision binds nothing, so two arms are guaranteed to route identically.
+
+### `stream` — **yes**
+
+Pydantic Graph:
+
+```python
+@g.stream
+async def split(ctx):
+    for w in ctx.inputs.split():
+        yield w
+```
+
+Workflow Workbench:
+
+```python
+split = NodeSpec("split", inputs=(text,), outputs=(words,), streams=True)
+EdgeSpec(split, collect, words, map_over=word)   # its output is an AsyncIterable
+```
+
+> A flag on NodeSpec, not its own type: a stream IS a role a strategy fills.
+
+### `broadcast` — **yes**
+
+Pydantic Graph:
+
+```python
+g.edge_from(a).broadcast(lambda eb: [eb.to(x), eb.to(y)])
+```
+
+Workflow Workbench:
+
+```python
+EdgeSpec(a, x, v)
+EdgeSpec(a, y, v)      # two edges from one source
+```
+
+> MEASURED equivalent: same topology, same answer. Only the generated fork node's name differs. No vocabulary was added for it.
+
+### `edge_from(*sources) / to(a, b)` — **yes**
+
+Pydantic Graph:
+
+```python
+g.edge_from(a, b).to(sink)
+```
+
+Workflow Workbench:
+
+```python
+EdgeSpec(a, sink, v)
+EdgeSpec(b, sink, v)
+```
+
+> MEASURED byte-identical. ⚠️ But two producers into one STEP is a real defect — the step runs once per edge and one result is discarded. Use a JoinSpec; `check_step_arity` refuses the other shape.
+
+### `match(matches=predicate)` — partial
+
+Pydantic Graph:
+
+```python
+d.branch(g.match(int, matches=lambda v: v > 10).to(big))
+```
+
+Workflow Workbench:
+
+```python
+# not declarable. Return a discriminating TYPE from a step instead:
+async def triage(ctx) -> Urgent | Routine: ...
+EdgeSpec(route, escalate, v, when=Urgent)
+```
+
+> REFUSED, not missing. A callable in the declaration is an implementation: `diagram()` cannot draw it and `varies()` cannot compare two. Making the decision a typed value is the better design anyway — it becomes something you can see and battle.
+
+### `transform` — refused, on purpose
+
+Pydantic Graph:
+
+```python
+g.edge_from(a).transform(lambda ctx: ctx.inputs.edges).to(b)
+```
+
+Workflow Workbench:
+
+```python
+# either it is a stage, and deserves a name:
+prune = NodeSpec("prune", inputs=(graph,), outputs=(edges_v,))
+# or it is plumbing, and belongs in the consumer:
+async def cite(ctx) -> CaseGraph:
+    edges = ctx.inputs.edges
+```
+
+> Same reason as the predicate form. Being forced to choose is the point: if the reshaping matters, it belongs on the diagram.
+
+### `node(BaseNode) / match_node` — cannot be declared
+
+Pydantic Graph:
+
+```python
+class Increment(BaseNode[S, None, int]):
+    async def run(self, ctx) -> DoubleIt:       # names its OWN successor
+        return DoubleIt(...)
+```
+
+Workflow Workbench:
+
+```python
+# no equivalent, and this is not a gap to close.
+# For the usual reason people reach for it — a retry loop — route BACKWARDS:
+EdgeSpec(route, unwrap, v, when=Retry)
+EdgeSpec(unwrap, propose, seed)                 # the back edge
+```
+
+> A BaseNode's topology lives inside its implementation, so declared `edges` would be a lie it is free to ignore — and two arms binding different BaseNodes could be two different graphs while `diff_diagram()` drew them as one.
+
+**Plumbing, not topology:** `build`, `start_node / end_node`, `Source / Destination` — `render()` and `START`/`END` cover these.
+<!-- parity:end -->

@@ -12,11 +12,12 @@ not have:
 every check this library exists to provide — `check()` says so out loud (`NOT CHECKED — ...
 overrides build_pydantic_structure()`), and the middle section measures exactly that.
 
-⛔ AND THE MATRIX IS CHECKED AGAINST THE REAL API, not maintained by hand. It was hand-written
-once, from a grep of method names, and it MISSED SEVERAL — `stream`, `node`, `match_node`,
-`add_mapping_edge`, and the `matches=` predicate on `match`. A hand-maintained inventory of
-someone else's API is wrong the moment they add to it, and nothing would have said so. The last
-section introspects `GraphBuilder` and fails if any public method is unclassified.
+⛔ THE TABLE IS `workflow_workbench/parity.py`, AND IT IS CHECKED AGAINST THE REAL API. It was
+hand-written here once, from a grep of method names, and it MISSED FIVE — `stream`, `node`,
+`match_node`, `add_mapping_edge`, and the `matches=` predicate on `match` — while reading as a
+complete inventory of the gaps. A hand-maintained inventory of someone else's API is wrong the
+moment they add to it. The last section introspects `GraphBuilder` and fails if any public method
+is absent from `parity.FEATURES`.
 
     uv run python3 docs/probe_builder_features.py
 """
@@ -232,69 +233,31 @@ print("     `stream`, joins, decisions and fan-in were all declarable.")
 print()
 
 
-# ── the matrix, keyed by the REAL API names so it can be checked ────────────────────────────
+# ── the table lives in workflow_workbench/parity.py — ONE definition ────────────────────────
 #
-# status: "yes" declarable | "partial" declarable in part | "no" escape hatch only
-#         "plumbing" not a topology feature — types, sentinels, the build call itself
-MATRIX: dict[str, tuple[str, str]] = {
-    "step":             ("yes", "NodeSpec"),
-    "join":             ("yes", "JoinSpec, in `joins` — it carries a reducer, so nothing binds it"),
-    "decision":         ("yes", "DecisionSpec in `decisions`; branches are EdgeSpec(..., when=T)"),
-    "match":            ("partial", "the TYPE form is `when=`. The `matches=` PREDICATE form is "
-                                    "DELIBERATELY not declarable: a callable in the declaration "
-                                    "is an implementation, which diagram() cannot draw and "
-                                    "varies() cannot compare. Return a discriminating type from a "
-                                    "step instead — see stage9"),
-    "edge_from":        ("yes", "several edges into one target. MEASURED byte-identical to "
-                                "`edge_from(a, b).to(t)` in one call"),
-    "add":              ("yes", "what the default build_pydantic_structure() does, per edge"),
-    "add_edge":         ("yes", "same wire as an EdgeSpec, expressed as a helper"),
-    "stream":           ("yes", "NodeSpec(streams=True). Its output is an AsyncIterable, so "
-                                "the items are fanned out by `map_over` on the outgoing edge"),
-    "node":             ("no", "a BaseNode RETURNS ITS OWN SUCCESSOR, so its topology lives "
-                               "inside its implementation. Declaring edges for it would be a "
-                               "guess. Not a gap — a different authoring model"),
-    "match_node":       ("no", "branch on a BaseNode subclass; follows `node` being unsupported"),
-    "add_mapping_edge": ("yes", "EdgeSpec(..., map_over=item) — the same fan-out, as data"),
-    "build":            ("plumbing", "called by render()"),
-    "decision_note":    ("yes", "DecisionSpec.note"),
-    "Source":           ("plumbing", "a typing helper"),
-    "Destination":      ("plumbing", "a typing helper"),
-    "start_node":       ("plumbing", "START"),
-    "end_node":         ("plumbing", "END"),
-}
-EDGE_MATRIX: dict[str, tuple[str, str]] = {
-    "to":        ("yes", "EdgeSpec. Multi-destination is a fork — several edges from one source"),
-    "label":     ("yes", "EdgeSpec.label"),
-    "map":       ("yes", "EdgeSpec(..., map_over=item): `variable` is the collection on the wire, "
-                         "`map_over` the item the target receives. Naming both keeps both checked"),
-    "broadcast": ("yes", "several edges from one source. MEASURED: same topology as an explicit "
-                         "broadcast() apart from the fork node's generated name"),
-    "transform": ("no", "DELIBERATELY. A callable on an edge is an implementation living in the "
-                        "declaration. If it deserves a name it is a NodeSpec; if not, it is an "
-                        "optimisation"),
-}
+# ⛔ It used to live here, hand-written from a grep, and missed five features while reading as a
+# complete inventory of the gaps. Then the README grew its own copy. Two descriptions of one
+# thing is the drift `.claude/rules/spec-as-code.md` exists to prevent, so there is now one:
+# `parity.py` is source, the README appendix is generated from it, and this probe reads it.
+from workflow_workbench.parity import FEATURES  # noqa: E402
 
-ORDER = {"yes": 0, "partial": 1, "no": 2, "plumbing": 3}
-print(f"{'GraphBuilder API':<20} {'declarable':>11}   how, or why not")
-for api, (status, why) in sorted(MATRIX.items(), key=lambda kv: (ORDER[kv[1][0]], kv[0])):
-    if status == "plumbing":
+ORDER = {"yes": 0, "partial": 1, "refused": 2, "cannot": 3, "plumbing": 4}
+print(f"{'GraphBuilder API':<32} {'declarable':>18}   what to write instead")
+for f in sorted(FEATURES, key=lambda f: (ORDER[f.status], f.api)):
+    if f.status == "plumbing":
         continue
-    print(f"{api:<20} {status.upper() if status == 'yes' else status:>11}   {why}")
+    first = f.ours.strip().splitlines()[0]
+    print(f"{f.api:<32} {f.status:>18}   {first[:70]}")
 
-print(f"\n{'edge builder':<20} {'declarable':>11}   how, or why not")
-for api, (status, why) in sorted(EDGE_MATRIX.items(), key=lambda kv: (ORDER[kv[1][0]], kv[0])):
-    print(f"{api:<20} {status.upper() if status == 'yes' else status:>11}   {why}")
-
-topo = {k: v for k, v in MATRIX.items() if v[0] != "plumbing"}
-full = sum(1 for s, _ in topo.values() if s == "yes")
-part = sum(1 for s, _ in topo.values() if s == "partial")
-print(f"\n{full} fully declarable, {part} partial, {len(topo) - full - part} escape-hatch only, "
-      f"out of {len(topo)} topology features on GraphBuilder.")
-print("Everything not declarable runs ONLY through build_pydantic_structure(). That used to make")
-print("`edges` decorative and report reachability as NOT CHECKED for the whole design; since")
-print("`built.check_built_topology`, render() verifies the BUILT graph instead, so what an")
-print("override costs is checking BEFORE the implementations exist — not checking at all.")
+topo = [f for f in FEATURES if f.status != "plumbing"]
+counts = {k: sum(1 for f in topo if f.status == k) for k in ("yes", "partial", "refused", "cannot")}
+print(f"\n{counts['yes']} declarable, {counts['partial']} partial, "
+      f"{counts['refused']} refused on purpose, {counts['cannot']} cannot be declared "
+      f"— out of {len(topo)}.")
+print("⚠️ `refused` and `cannot` are NOT the same as missing, and are kept apart on purpose:")
+print("   collapsing them into 'no' is how a design decision comes to read as a gap, and how the")
+print("   next person 'fixes' it. Full side-by-side examples: README appendix, or")
+print("   `python3 -m workflow_workbench.parity`.")
 
 
 # ── ⛔ and the check that stops this list going stale ────────────────────────────────────────
@@ -303,17 +266,19 @@ print("is the matrix COMPLETE — does it classify every public GraphBuilder met
 print("=" * 92)
 
 public = {n for n in dir(GraphBuilder) if not n.startswith("_")}
-classified = set(MATRIX) - {"decision_note"}
+classified: set[str] = set()
+for f in FEATURES:
+    for part in f.api.replace("(*sources)", "").replace("(a, b)", "").split("/"):
+        classified.add(part.strip().split("(")[0].strip())
 unclassified = sorted(public - classified)
-stale = sorted(classified - public)
 
 if unclassified:
-    print(f"\n⛔ UNCLASSIFIED — pydantic-graph exposes these and the matrix says nothing:")
+    print("\n⛔ UNCLASSIFIED — pydantic-graph exposes these and parity.py says nothing:")
     for name in unclassified:
         print(f"     {name}")
-if stale:
-    print(f"\n⛔ STALE — the matrix classifies these and they no longer exist: {stale}")
-if not unclassified and not stale:
-    print(f"\nclean: all {len(public)} public GraphBuilder methods are classified.")
+    print("\n   Add a Feature for each. Note that 'we refuse it' and 'we forgot it' must not")
+    print("   read the same, which is why `status` has four values and not two.")
+else:
+    print(f"\nclean: all {len(public)} public GraphBuilder methods appear in parity.FEATURES.")
 
-sys.exit(1 if (bad or unclassified or stale) else 0)
+sys.exit(1 if (bad or unclassified) else 0)

@@ -432,14 +432,17 @@ def test_rung9_the_diagram_labels_branches_by_type_not_variable() -> None:
 # ── the capability matrix must not go stale ─────────────────────────────────────────────────
 
 def test_the_capability_matrix_classifies_every_public_graphbuilder_method() -> None:
-    """⛔ Why this exists: the matrix was hand-written from a grep and MISSED FIVE — `stream`,
+    """⛔ Why this exists: the table was hand-written from a grep and MISSED FIVE — `stream`,
     `node`, `match_node`, `add_mapping_edge`, and the `matches=` predicate form of `match`. It
     read as a complete inventory of what this library does not cover, and it was not one.
 
     A hand-maintained list of someone else's API is wrong the moment they add to it, and nothing
-    says so. This runs the probe, which introspects `GraphBuilder` and exits non-zero if any
-    public method is unclassified — so the next thing pydantic-graph ships turns this red instead
-    of silently widening a gap we describe as closed.
+    says so. This runs the probe end to end, which introspects `GraphBuilder` and exits non-zero
+    if any public method is absent from `parity.FEATURES` — so the next thing pydantic-graph
+    ships turns this red instead of silently widening a gap we describe as closed.
+
+    ⚠️ Overlaps `tests/test_parity.py` on purpose: that one checks the DATA, this one checks that
+    the probe a reader is told to run actually passes.
     """
     import subprocess
     import sys
@@ -450,5 +453,4 @@ def test_the_capability_matrix_classifies_every_public_graphbuilder_method() -> 
                           cwd=root, capture_output=True, text=True, timeout=300)
     assert proc.returncode == 0, (
         f"the capability matrix is out of date:\n{proc.stdout[-2500:]}\n{proc.stderr[-1500:]}")
-    assert "all 16 public GraphBuilder methods are classified" in proc.stdout or \
-           "public GraphBuilder methods are classified" in proc.stdout, proc.stdout[-800:]
+    assert "appear in parity.FEATURES" in proc.stdout, proc.stdout[-800:]

@@ -103,6 +103,13 @@ class VariableSpec:
 class NodeSpec:
     """A semantic role with a typed contract. Deliberately implementation-free.
 
+    ⛔ FOR A FUTURE AGENT: a `pydantic_graph.BaseNode` IS NOT THIS, and wrapping one here is a
+    dead end, not a missing feature. A BaseNode's `run()` returns the NEXT NODE, so its topology
+    lives inside its implementation — declared `edges` would be a lie it is free to ignore, and
+    two arms binding different BaseNodes could be two different graphs while `diff_diagram()`
+    drew them as one. If someone wants a retry loop (the usual reason), route BACKWARDS with a
+    `DecisionSpec` instead; `tests/test_subgraph.py` has a worked one. See `parity.py`.
+
     ## ⚠️ `eq=False` is load-bearing, not a style choice
 
     A `StrategySpec` keys its bindings on `NodeSpec`, so a NodeSpec is used as an IDENTITY. With
@@ -158,6 +165,17 @@ class NodeSpec:
 @dataclass(frozen=True)
 class EdgeSpec:
     """One wire: `source -> target`, carrying `variable`.
+
+    ⛔ FOR A FUTURE AGENT: do not add a `transform=` or a `matches=` field here. Both have been
+    considered and REFUSED, and both look like obvious omissions until you see why:
+
+        a callable on an edge is an IMPLEMENTATION living in the declaration. `diagram()` cannot
+        draw what it does, `varies()` cannot compare two of them, and `check_variable_types`
+        cannot check it. The declaration would then contain a step nobody can see.
+
+    If the reshaping matters it is a stage — give it a `NodeSpec`. If it does not, do it at the
+    top of the consuming step body. For routing, return a discriminating TYPE from a step and
+    branch on it with `when=`. See `parity.py`, which is where this is written down for users.
 
     ⚠️ `variable` names WHICH declared value crosses this wire, and it is checked per-edge. A node
     with two outputs wired to two targets can have them swapped, and a check that merely aggregates

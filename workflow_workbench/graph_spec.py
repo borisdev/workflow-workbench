@@ -48,6 +48,16 @@ class GraphSpec:
     No hook, no override, no escape hatch. That is what makes every check meaningful — a
     declaration that something else could quietly contradict is a decoration, and for a while
     this class had exactly that.
+
+    ⛔ FOR A FUTURE AGENT: do not re-add a `build_pydantic_structure()` hook. It existed until
+    2026-08-30 and was deleted on purpose along with ~450 lines that existed only to police it
+    (`built.py`, a NOT CHECKED finding, a ladder rung, a test module). Re-adding it makes `edges`
+    decorative again for anything that uses it. `test_there_is_no_wiring_hook_to_override` guards
+    this, and guards the nastier half: a subclass defining that method has NO EFFECT rather than
+    erroring, so nobody would notice.
+
+    If a design genuinely cannot be declared, that is the answer: `render()` returns a real
+    `pydantic_graph.Graph` — take it and use their API directly.
     """
 
     name: ClassVar[str] = ""

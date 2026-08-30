@@ -1,0 +1,193 @@
+"""Every Pydantic Graph builder feature, theirs beside ours. SOURCE, not documentation.
+
+⛔ THIS FILE IS THE ONE DEFINITION. The README appendix is GENERATED from it and
+`tests/test_parity.py` fails if the two disagree — `.claude/rules/spec-as-code.md`: a document is
+either source or derived, and mixing them is the whole failure mode.
+
+    python3 -m workflow_workbench.parity          # print the markdown
+    python3 -m workflow_workbench.parity --check   # exit 1 if the README is stale
+
+Why it exists at all: an earlier version of this table lived in a probe, hand-written from a grep,
+and MISSED FIVE features while reading as a complete inventory of the gaps. A list of someone
+else's API is wrong the moment they add to it. `docs/probe_builder_features.py` introspects
+`GraphBuilder` and fails on any public method absent from `FEATURES` below.
+"""
+from __future__ import annotations
+
+import sys
+from dataclasses import dataclass
+
+__all__ = ["Feature", "FEATURES", "as_markdown"]
+
+
+@dataclass(frozen=True)
+class Feature:
+    """One builder capability: what they write, what we write, and whether we cover it.
+
+    `status` is deliberately four values, not two. "partial" and "refused" are different facts and
+    collapsing them into "no" is how a deliberate design decision comes to read as a gap.
+    """
+
+    api: str
+    status: str          # "yes" | "partial" | "refused" | "cannot" | "plumbing"
+    theirs: str
+    ours: str
+    note: str = ""
+
+
+FEATURES: tuple[Feature, ...] = (
+    Feature(
+        "step", "yes",
+        "@g.step\nasync def double(ctx) -> int:\n    return ctx.inputs * 2",
+        'double = NodeSpec("double", inputs=(n,), outputs=(n,))\n'
+        '# and a strategy binds the body:\n'
+        'StrategySpec("s", {double: double_impl})',
+        "Theirs names the node after the function. Ours names it in the DESIGN, so two "
+        "strategies produce the same node ids and can be compared.",
+    ),
+    Feature(
+        "add / add_edge / label", "yes",
+        "g.add(g.edge_from(a).to(b))\ng.add_edge(a, b, label='count')",
+        "EdgeSpec(a, b, count)          # the variable IS the label",
+        "",
+    ),
+    Feature(
+        "join", "yes",
+        "collect = g.join(reduce_sum, initial=0)",
+        'collect = JoinSpec("collect", reduce_sum, initial=0,\n'
+        '                   inputs=(number,), outputs=(total,))\n'
+        'class Design(GraphSpec):\n    joins = (collect,)',
+        "In `joins`, not `nodes`: a reducer is `(current, input) -> current`, so there is no "
+        "implementation for a strategy to bind.",
+    ),
+    Feature(
+        "map / add_mapping_edge", "yes",
+        "g.edge_from(g.start_node).map().to(square)",
+        "EdgeSpec(START, square, numbers, map_over=number)",
+        "`variable` is the collection on the wire, `map_over` the item the target receives. "
+        "Naming both is what keeps both ends checked.",
+    ),
+    Feature(
+        "decision", "yes",
+        "d = g.decision()\n"
+        "d = d.branch(g.match(Urgent).to(escalate))\n"
+        "d = d.branch(g.match(Routine).to(research))",
+        'route = DecisionSpec("route")\n'
+        "EdgeSpec(route, escalate, v, when=Urgent)\n"
+        "EdgeSpec(route, research, v, when=Routine)",
+        "The condition lives on the EDGE so `edges` stays the only place topology is written. "
+        "A decision binds nothing, so two arms are guaranteed to route identically.",
+    ),
+    Feature(
+        "stream", "yes",
+        "@g.stream\nasync def split(ctx):\n    for w in ctx.inputs.split():\n        yield w",
+        'split = NodeSpec("split", inputs=(text,), outputs=(words,), streams=True)\n'
+        "EdgeSpec(split, collect, words, map_over=word)   # its output is an AsyncIterable",
+        "A flag on NodeSpec, not its own type: a stream IS a role a strategy fills.",
+    ),
+    Feature(
+        "broadcast", "yes",
+        "g.edge_from(a).broadcast(lambda eb: [eb.to(x), eb.to(y)])",
+        "EdgeSpec(a, x, v)\nEdgeSpec(a, y, v)      # two edges from one source",
+        "MEASURED equivalent: same topology, same answer. Only the generated fork node's name "
+        "differs. No vocabulary was added for it.",
+    ),
+    Feature(
+        "edge_from(*sources) / to(a, b)", "yes",
+        "g.edge_from(a, b).to(sink)",
+        "EdgeSpec(a, sink, v)\nEdgeSpec(b, sink, v)",
+        "MEASURED byte-identical. ⚠️ But two producers into one STEP is a real defect — the step "
+        "runs once per edge and one result is discarded. Use a JoinSpec; `check_step_arity` "
+        "refuses the other shape.",
+    ),
+    Feature(
+        "match(matches=predicate)", "partial",
+        "d.branch(g.match(int, matches=lambda v: v > 10).to(big))",
+        "# not declarable. Return a discriminating TYPE from a step instead:\n"
+        "async def triage(ctx) -> Urgent | Routine: ...\n"
+        "EdgeSpec(route, escalate, v, when=Urgent)",
+        "REFUSED, not missing. A callable in the declaration is an implementation: `diagram()` "
+        "cannot draw it and `varies()` cannot compare two. Making the decision a typed value is "
+        "the better design anyway — it becomes something you can see and battle.",
+    ),
+    Feature(
+        "transform", "refused",
+        "g.edge_from(a).transform(lambda ctx: ctx.inputs.edges).to(b)",
+        "# either it is a stage, and deserves a name:\n"
+        'prune = NodeSpec("prune", inputs=(graph,), outputs=(edges_v,))\n'
+        "# or it is plumbing, and belongs in the consumer:\n"
+        "async def cite(ctx) -> CaseGraph:\n    edges = ctx.inputs.edges",
+        "Same reason as the predicate form. Being forced to choose is the point: if the "
+        "reshaping matters, it belongs on the diagram.",
+    ),
+    Feature(
+        "node(BaseNode) / match_node", "cannot",
+        "class Increment(BaseNode[S, None, int]):\n"
+        "    async def run(self, ctx) -> DoubleIt:       # names its OWN successor\n"
+        "        return DoubleIt(...)",
+        "# no equivalent, and this is not a gap to close.\n"
+        "# For the usual reason people reach for it — a retry loop — route BACKWARDS:\n"
+        "EdgeSpec(route, unwrap, v, when=Retry)\n"
+        "EdgeSpec(unwrap, propose, seed)                 # the back edge",
+        "A BaseNode's topology lives inside its implementation, so declared `edges` would be a "
+        "lie it is free to ignore — and two arms binding different BaseNodes could be two "
+        "different graphs while `diff_diagram()` drew them as one.",
+    ),
+    Feature("build", "plumbing", "graph = g.build()", "graph = spec.render(strategy)", ""),
+    Feature("start_node / end_node", "plumbing", "g.start_node, g.end_node", "START, END", ""),
+    Feature("Source / Destination", "plumbing", "typing helpers", "not surfaced", ""),
+)
+
+_LABEL = {"yes": "**yes**", "partial": "partial", "refused": "refused, on purpose",
+          "cannot": "cannot be declared", "plumbing": "plumbing"}
+
+
+def as_markdown() -> str:
+    """The appendix. Regenerate with `python3 -m workflow_workbench.parity`."""
+    out = ["## Appendix: every Pydantic Graph builder feature, theirs beside ours", "",
+           "<!-- GENERATED from workflow_workbench/parity.py — do not edit by hand. -->",
+           "<!-- Regenerate: python3 -m workflow_workbench.parity -->", ""]
+    for f in FEATURES:
+        if f.status == "plumbing":
+            continue
+        out += [f"### `{f.api}` — {_LABEL[f.status]}", "", "Pydantic Graph:", "",
+                "```python", f.theirs, "```", "", "Workflow Workbench:", "",
+                "```python", f.ours, "```", ""]
+        if f.note:
+            out += [f"> {f.note}", ""]
+    plumbing = ", ".join(f"`{f.api}`" for f in FEATURES if f.status == "plumbing")
+    out += [f"**Plumbing, not topology:** {plumbing} — `render()` and `START`/`END` cover these.",
+            ""]
+    return "\n".join(out)
+
+
+START_MARK = "<!-- parity:start -->"
+END_MARK = "<!-- parity:end -->"
+
+
+def _readme() -> tuple[str, str]:
+    import pathlib
+    p = pathlib.Path(__file__).resolve().parent.parent / "README.md"
+    return p.read_text(), str(p)
+
+
+def main() -> int:
+    body = as_markdown()
+    if "--check" not in sys.argv:
+        print(body)
+        return 0
+    text, path = _readme()
+    if START_MARK not in text or END_MARK not in text:
+        print(f"{path}: parity markers missing")
+        return 1
+    current = text.split(START_MARK, 1)[1].split(END_MARK, 1)[0].strip()
+    if current != body.strip():
+        print(f"{path}: the appendix is stale. Regenerate:\n"
+              f"  python3 -m workflow_workbench.parity")
+        return 1
+    print("README appendix matches parity.py")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
