@@ -127,6 +127,7 @@ class GraphSpec:
                                             decisions=self.decisions)
         findings += checks.check_reachable(endpoints, self.edges)
         findings += checks.check_transform_edges(self.edges, strategy)
+        findings += checks.check_fan_out_rejoins(endpoints, self.edges)
         if strategy is not None:
             findings += checks.check_bindings(self._bindables(), strategy)
             findings += checks.check_implementations(strategy)

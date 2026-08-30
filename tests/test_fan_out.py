@@ -177,3 +177,68 @@ def test_the_shopping_list_from_the_MapEdgeSpec_docstring_runs() -> None:
     # the point of the whole construct: `price` never sees the list
     assert sorted(seen) == ["bread", "eggs", "milk"]
     assert "each item" in spec.diagram(strategy)
+
+
+def test_a_fan_out_that_never_rejoins_is_refused() -> None:
+    """⛔ The mirror of `check_step_arity`, and it was missing until someone asked why a join is
+    always needed. Measured before the check existed:
+
+        check() -> clean
+        run     -> 1.2
+        price ran 3 times, with ['milk', 'eggs', 'bread']
+
+    Three prices computed, one returned, two gone — and the survivor has the right SHAPE, which
+    is what makes it survivable in production.
+    """
+    shopping = VariableSpec("shopping", list)
+    item = VariableSpec("item", str)
+    cost = VariableSpec("cost", float)
+    price = NodeSpec("price", inputs=(item,), outputs=(cost,))
+
+    class NoJoin(GraphSpec):
+        name = "no_join"
+        input_type, output_type = list, float
+        nodes = (price,)
+        edges = (MapEdgeSpec(START, price, shopping, item), EdgeSpec(price, END, cost))
+
+    async def look_up(ctx) -> float:
+        return 1.0
+
+    with pytest.raises(SpecError, match="reaches END without passing a join"):
+        NoJoin().render(StrategySpec("s", {price: look_up}))
+
+
+def test_the_join_need_not_be_adjacent_to_the_fan_out() -> None:
+    """Stated as reachability, not as "the next node must be a join" — `map -> a -> b -> join` is
+    a perfectly ordinary shape and a check that rejected it would be noise."""
+    from pydantic_graph.join import reduce_sum
+
+    items = VariableSpec("items", list)
+    one = VariableSpec("one", int)
+    doubled = VariableSpec("doubled", int)
+    total_v = VariableSpec("total_v", int)
+
+    first = NodeSpec("first", inputs=(one,), outputs=(one,))
+    second = NodeSpec("second", inputs=(one,), outputs=(doubled,))
+    total = JoinSpec("total", reduce_sum, initial=0, inputs=(doubled,), outputs=(total_v,))
+
+    class TwoStepsThenJoin(GraphSpec):
+        name = "two_steps_then_join"
+        input_type, output_type = list, int
+        nodes = (first, second)
+        joins = (total,)
+        edges = (MapEdgeSpec(START, first, items, one),
+                 EdgeSpec(first, second, one),
+                 EdgeSpec(second, total, doubled),
+                 EdgeSpec(total, END, total_v))
+
+    async def keep(ctx) -> int:
+        return ctx.inputs
+
+    async def double(ctx) -> int:
+        return ctx.inputs * 2
+
+    spec = TwoStepsThenJoin()
+    strategy = StrategySpec("s", {first: keep, second: double})
+    assert spec.check(strategy) == []
+    assert spec.render(strategy).run_sync(inputs=[1, 2, 3]) == 12

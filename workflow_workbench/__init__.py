@@ -10,6 +10,7 @@ stays usable without an evaluation framework installed.
 """
 from workflow_workbench.checks import (
     check_bindings,
+    check_fan_out_rejoins,
     check_decisions,
     check_implementations,
     check_names,
@@ -45,6 +46,6 @@ __all__ = [
     "START", "END",
     "check_names", "check_reachable", "check_variables", "check_bindings",
     "check_implementations", "check_subgraphs", "check_step_arity", "check_decisions",
-    "check_variable_types", "check_transform_edges",
+    "check_variable_types", "check_transform_edges", "check_fan_out_rejoins",
     "diagram", "diff_diagram",
 ]

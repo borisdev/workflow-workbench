@@ -16,6 +16,7 @@ from typing import Any
 from workflow_workbench.spec import (
     DecisionSpec,
     EdgeSpec,
+    JoinSpec,
     MapEdgeSpec,
     TransformEdgeSpec,
     NodeSpec,
@@ -28,7 +29,8 @@ from workflow_workbench.spec import (
 
 __all__ = ["check_names", "check_reachable", "check_variables", "check_bindings",
            "check_implementations", "check_subgraphs", "check_step_arity", "check_decisions",
-           "check_variable_types", "check_transform_edges"]
+           "check_variable_types", "check_transform_edges",
+           "check_fan_out_rejoins"]
 
 
 def _name(ep: Any) -> str:
@@ -704,4 +706,62 @@ def check_transform_edges(edges: tuple[EdgeSpec, ...], strategy: StrategySpec | 
                 f"await — pydantic-graph would not reject it, it would quietly pass a coroutine "
                 f"object to the next step. If it needs to await, it is a stage: give it a "
                 f"NodeSpec.")
+    return findings
+
+
+def check_fan_out_rejoins(nodes: tuple[Any, ...], edges: tuple[EdgeSpec, ...]) -> list[str]:
+    """Everything a fan-out produces must reach a join before it reaches END.
+
+    ⛔ THE MIRROR OF `check_step_arity`, and it was missing. Measured on a three-item shopping
+    list with `map -> price -> END` and no join:
+
+        check() -> clean
+        run     -> 1.2
+        price ran 3 times, with ['milk', 'eggs', 'bread']
+
+    Three prices computed, ONE returned. The other two are gone, and nothing objected.
+
+    `.map()` makes the target run once per item and each run flows forward on its own path. A STEP
+    cannot merge them — it receives one value per invocation — so N runs produce N results and the
+    graph hands back whichever arrives first. A `JoinSpec` is `(current, input) -> current`, the
+    only shape that accumulates across arrivals.
+
+    The fan-out multiplies; only a join divides back.
+
+    ⚠️ Stated as reachability rather than as a node count, because the join need not be adjacent:
+    `map -> a -> b -> join -> END` is fine, and so is a branch, as long as every path from the
+    fanned target to END passes through one.
+    """
+    findings: list[str] = []
+    fans = [e for e in edges if isinstance(e, MapEdgeSpec)]
+    if not fans:
+        return findings
+
+    fwd: dict[int, list[Any]] = {}
+    for e in edges:
+        fwd.setdefault(id(e.source), []).append(e.target)
+
+    def reaches_end_without_a_join(start: Any) -> bool:
+        seen: set[int] = set()
+        stack = [start]
+        while stack:
+            cur = stack.pop()
+            if id(cur) in seen:
+                continue
+            seen.add(id(cur))
+            if isinstance(cur, JoinSpec):
+                continue                       # this path reconverged; stop walking it
+            if isinstance(cur, _End):
+                return True
+            stack.extend(fwd.get(id(cur), ()))
+        return False
+
+    for e in fans:
+        if reaches_end_without_a_join(e.target):
+            findings.append(
+                f"edge {e!r} fans out, but a path from {_name(e.target)!r} reaches END without "
+                f"passing a join. Every item produces its own result and a step cannot merge "
+                f"them, so all but one are discarded — silently, with the right answer's shape. "
+                f"Add a JoinSpec: a reducer `(current, input) -> current` is the only thing that "
+                f"can put them back together.")
     return findings
