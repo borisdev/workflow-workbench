@@ -152,18 +152,15 @@ can declare as DATA — the only form `check()` and `diagram()` can read.
 | `step` | **yes** | `NodeSpec` |
 | `join` | **yes** | `JoinSpec` in `joins` |
 | `decision` | **yes** | `DecisionSpec` in `decisions` |
-| `add` / `add_edge` | **yes** | `EdgeSpec` |
-| `match` | partial | the type form is `when=T`; the `matches=` **predicate** form is not |
-| `edge_from` | partial | one source per edge; `edge_from(a, b)` as one call is not |
-| `stream` | no | a streaming step body; `NodeSpec` assumes `(ctx) -> Out` |
-| `node` | no | the `BaseNode` class-based authoring API — an alternative to `step` entirely |
-| `match_node` | no | branch on a `BaseNode` subclass |
-| `add_mapping_edge` | no | fan-out |
+| `stream` | **yes** | `NodeSpec(streams=True)`, items fanned out by `map_over` |
+| `map` / `add_mapping_edge` | **yes** | `EdgeSpec(..., map_over=item)` |
+| `broadcast`, `edge_from(*sources)`, multi-destination `to` | **yes** | several `EdgeSpec`s from or into one node — *measured* equivalent |
+| `add` / `add_edge` / `label` | **yes** | `EdgeSpec` |
+| `match` | partial | the type form is `when=T`. The `matches=` **predicate** form is deliberately not — return a discriminating type from a step instead |
+| `transform` | no | deliberately: a callable on an edge is an implementation in the declaration |
+| `node` / `match_node` | no | a `BaseNode` returns its own successor, so its topology cannot be declared |
 
-…plus the edge builder: `label` yes, `to` partial (multi-destination is a fork), and `map`,
-`transform`, `broadcast` no.
-
-**6 fully declarable, 2 partial, 4 escape-hatch only.** Everything not declarable runs *only*
+**9 fully declarable, 1 partial, 2 not.** Everything not declarable runs *only*
 through `build_pydantic_structure()`.
 
 ⛔ That used to be the end of the story, and it was the expensive part: an override made `edges`

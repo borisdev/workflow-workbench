@@ -54,6 +54,10 @@ def _arrow(e: EdgeSpec) -> str:
     if e.when is not None:
         return f"-- {getattr(e.when, '__name__', e.when)} -->"
     lbl = e.label or (e.variable.name if e.variable else "")
+    if e.map_over is not None:
+        # ⚠️ A fan-out must be visible, and it must name BOTH ends. An edge drawn like every other
+        # one, whose target actually runs N times, misleads about the shape of the work.
+        return f"== {lbl} : each {e.map_over.name} ==>"
     return f"-- {lbl} -->" if lbl else "-->"
 
 

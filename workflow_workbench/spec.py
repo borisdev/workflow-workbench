@@ -127,6 +127,13 @@ class NodeSpec:
     name: str
     inputs: tuple[VariableSpec, ...] = ()
     outputs: tuple[VariableSpec, ...] = ()
+    streams: bool = False
+    """This role is filled by an async GENERATOR, built with `g.stream` rather than `g.step`.
+
+    ⚠️ Still a NodeSpec, not a StreamSpec — unlike a join or a decision, a stream IS a role a
+    strategy fills, and it has exactly one implementation per arm. Giving it its own type would
+    have split `nodes` into two kinds for no gain and made "a node is a role a strategy fills"
+    false of one of them."""
 
     def __post_init__(self) -> None:
         if not self.name:
@@ -168,6 +175,23 @@ class EdgeSpec:
     ⚠️ The condition lives on the EDGE, not inside the DecisionSpec, on purpose: `edges` stays the
     single place the topology is written down, so `check_reachable` and `diagram()` keep working
     on branching designs without knowing decisions exist.
+
+    ⚠️ `map_over` fans this edge out: `variable` is the COLLECTION on the wire, `map_over` is the
+    ITEM the target receives, and the target runs once per item. pydantic-graph's `.map()`, as
+    data rather than a call, so a fan-out design stays declared instead of hand-wired.
+
+        EdgeSpec(START, square, numbers, map_over=number)   # carries `numbers`, square gets one
+        JoinSpec("total", reduce_sum, initial=0, ...)       # and the join collects them
+
+    ⛔ It names the item because a bool was not enough, and running it is what showed that. With
+    `map_over=True` the edge carried `numbers` while `square` declared `number`, and
+    `check_variables` — correctly — called that a wiring error. Naming both ends keeps BOTH sides
+    checked: the source really produces the collection, and the target really consumes the item.
+
+    ⚠️ NOT needed for a broadcast or a multi-source fan-in. Measured: two edges out of one source
+    build the same topology as an explicit `broadcast()` (only the fork node's generated name
+    differs), and separate edges into one target are byte-identical to `edge_from(a, b).to(t)`.
+    Adding vocabulary for either would have been vocabulary for nothing.
     """
 
     source: Any                       # NodeSpec | DecisionSpec | _Start
@@ -175,6 +199,7 @@ class EdgeSpec:
     variable: VariableSpec | None = None
     label: str = ""
     when: type | None = None
+    map_over: VariableSpec | None = None
 
     def __post_init__(self) -> None:
         if isinstance(self.source, _End):

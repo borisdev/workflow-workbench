@@ -1,34 +1,48 @@
-"""Parallel Processing — pydantic-graph's fan-out example, via the native escape hatch.
+"""Parallel Processing — pydantic-graph's fan-out example, DECLARED.
 
-⚠️ THE ONE CASE THE DECLARATIVE FORM CANNOT EXPRESS. `.map()` fan-out and `g.join()` collect are
-pydantic-graph mechanics with no `EdgeSpec` equivalent, and inventing one would be a second
-workflow language competing with theirs. So `build_pydantic_structure()` is overridden and the
-`edges` declaration is decorative for this class — which `check()` reports as NOT CHECKED rather
-than passing silently.
+A variation of their `parallel_processing.py` from
+<https://pydantic.dev/docs/ai/graph/builder/>: map over a list, transform each item, reduce.
 
-Two strategies still swap cleanly, which is the point.
+⛔ THIS FILE USED TO OVERRIDE `build_pydantic_structure()`, and its docstring said fan-out was
+"THE ONE CASE THE DECLARATIVE FORM CANNOT EXPRESS". That is no longer true. `map_over` on an edge
+and `JoinSpec` in `joins` say the same thing as data, so this design is checked, diagrammed and
+diffed like any other — where before, reaching for `.map()` cost reachability checking on every
+node in the file.
 
-⛔ CORRECTED. This used to say the escape hatch "costs the reachability check". It no longer does.
-`render()` checks the BUILT graph — so this design's reachability IS verified, and so is every
-declared edge, `.map()`-inserted nodes and all. What the override still costs is checking BEFORE
-the implementations exist: `check()` alone cannot read a topology written in code.
+    EdgeSpec(START, transform, numbers, map_over=number)    the collection crosses, one item lands
+    JoinSpec("collect", reduce_sum, initial=0, ...)         and the items are reduced
+
+⚠️ `map_over` names the ITEM, not just "this fans out". Both ends get checked that way: the wire
+really carries `numbers`, and `transform` really consumes a `number`. A bool was tried first and
+`check_variables` immediately caught the hole — the edge said `numbers`, the node said `number`.
 
     uv run python3 examples/parallel.py
 """
 from __future__ import annotations
 
-from typing import Any
-
-from pydantic_graph import GraphBuilder
 from pydantic_graph.join import reduce_sum
 
-from workflow_workbench import END, START, EdgeSpec, GraphSpec, NodeSpec, StrategySpec, VariableSpec
+from workflow_workbench import (
+    END,
+    START,
+    EdgeSpec,
+    GraphSpec,
+    JoinSpec,
+    NodeSpec,
+    StrategySpec,
+    VariableSpec,
+)
 
+numbers = VariableSpec("numbers", list)
 number = VariableSpec("number", int)
 total = VariableSpec("total", int)
 
 transform = NodeSpec("transform", inputs=(number,), outputs=(number,))
-collect = NodeSpec("collect", inputs=(number,), outputs=(total,))
+"""The role: one number in, one number out — applied to each item of the collection."""
+
+collect = JoinSpec("collect", reduce_sum, initial=0, inputs=(number,), outputs=(total,))
+"""⚠️ In `joins`, not `nodes`. A reducer is `(current, input) -> current`, not `(ctx) -> Out`, so
+there is no implementation for a strategy to bind and `varies()` will never mention it."""
 
 
 class ParallelProcessing(GraphSpec):
@@ -36,26 +50,11 @@ class ParallelProcessing(GraphSpec):
 
     name = "parallel"
     input_type, output_type = list[int], int
-    # `collect` is a JOIN, not a step, so it is not in `nodes` — a strategy has nothing to bind
-    # for it. It still appears in `edges`, because it is a real node in the built graph and
-    # leaving it out would make the declaration a lie about the topology.
     nodes = (transform,)
-    edges = (
-        EdgeSpec(START, transform, number),
-        EdgeSpec(transform, collect, number),
-        EdgeSpec(collect, END, total),
-    )
-
-    def build_pydantic_structure(self, g: GraphBuilder, nodes: dict[NodeSpec, Any]) -> None:
-        # ⚠️ A join is NOT a step and cannot be one: `g.join()` takes a reducer
-        # `(current, input) -> current` plus an `initial`, where `g.step()` takes `(ctx) -> Out`.
-        # Verified — `g.join(sum)` raises "'Unset' object is not iterable" without `initial=`.
-        total_node = g.join(reduce_sum, initial=0, node_id="collect")
-        g.add(
-            g.edge_from(g.start_node).map().to(nodes[transform]),
-            g.edge_from(nodes[transform]).to(total_node),
-            g.edge_from(total_node).to(g.end_node),
-        )
+    joins = (collect,)
+    edges = (EdgeSpec(START, transform, numbers, map_over=number),
+             EdgeSpec(transform, collect, number),
+             EdgeSpec(collect, END, total))
 
 
 async def square(ctx) -> int:
@@ -73,9 +72,9 @@ cubes = StrategySpec("cubes", {transform: cube})
 def main() -> None:
     spec = ParallelProcessing()
 
-    print("check() — the override is reported, not hidden:")
-    for f in spec.check(squares):
-        print(f"  {f}")
+    print(f"check() with no strategy: {spec.check() or 'clean'}")
+    print(f"check(squares):           {spec.check(squares) or 'clean'}")
+    print("  ⚠️ neither says NOT CHECKED. A fan-out design is now checked like any other.\n")
 
     for strategy in (squares, cubes):
         graph = spec.render(strategy)
@@ -83,6 +82,7 @@ def main() -> None:
         print(f"  {strategy.name:<9} nodes={sorted(graph.nodes)}  run([1,2,3,4]) -> {out}")
 
     print(f"\nwhat varies: {spec.varies(squares, cubes)}")
+    print(f"\n{spec.diagram(squares)}")
 
 
 if __name__ == "__main__":

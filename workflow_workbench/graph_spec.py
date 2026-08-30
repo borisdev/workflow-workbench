@@ -156,6 +156,9 @@ class GraphSpec:
             label = e.label or (e.variable.name if e.variable else "")
             if label:
                 builder = builder.label(label)
+            if e.map_over is not None:
+                # fan out: the target runs once per item of the collection on this edge
+                builder = builder.map()
             # Verified (probe 2): one g.add() per edge produces topology identical to one
             # combined g.add(*edges).
             g.add(builder.to(dst))
@@ -176,10 +179,13 @@ class GraphSpec:
         # node identity would belong to the STRATEGY rather than the DESIGN — two arms of one
         # design get disjoint node sets and a comparison has nothing to align on. Measured both
         # ways against pydantic-graph 2.35.1 in `docs/probe_api.py` (probes 5 and 5b).
-        built: dict[Any, Any] = {
-            node: g.step(self._step_body(node, strategy[node]),
-                         node_id=node.name, label=node.name)
-            for node in self.nodes}
+        built: dict[Any, Any] = {}
+        for node in self.nodes:
+            # ⚠️ `g.stream` for a generator role, `g.step` otherwise. Passing an async generator
+            # to `g.step` is accepted and then fails at call time, attributed to the engine.
+            make = g.stream if node.streams else g.step
+            built[node] = make(self._step_body(node, strategy[node]),
+                               node_id=node.name, label=node.name)
         # ⚠️ A join is built with `g.join`, never `g.step`. Its reducer is
         # `(current, input) -> current`, and `g.step` would accept it and then call it with one
         # argument at run time — a declaration error surfacing as a TypeError from the engine.

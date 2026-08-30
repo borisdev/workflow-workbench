@@ -141,6 +141,11 @@ def check_variables(nodes: tuple[NodeSpec, ...], edges: tuple[EdgeSpec, ...]) ->
     """
     findings: list[str] = []
     for e in edges:
+        if e.map_over is not None and e.variable is None:
+            findings.append(
+                f"edge {e!r} fans out to {e.map_over.name!r} but does not name the collection it "
+                f"carries. Both ends of a fan-out must be declared or only one of them is checked.")
+            continue
         if e.variable is None:
             continue
         if not is_sentinel(e.source):
@@ -151,11 +156,15 @@ def check_variables(nodes: tuple[NodeSpec, ...], edges: tuple[EdgeSpec, ...]) ->
                     f"declare it as an output (it declares: {declared}). Either the edge is wired "
                     f"to the wrong variable or the node's contract is out of date.")
         if not is_sentinel(e.target):
-            if e.variable not in e.target.inputs:
+            # ⚠️ On a fan-out the two ends carry DIFFERENT variables: the collection crosses the
+            # wire, the target receives one item. So the target is checked against `map_over`.
+            arrives = e.map_over if e.map_over is not None else e.variable
+            if arrives not in e.target.inputs:
                 declared = ", ".join(v.name for v in e.target.inputs) or "nothing"
+                how = " (one item per run)" if e.map_over is not None else ""
                 findings.append(
-                    f"edge {e!r} delivers {e.variable.name!r} to {e.target.name!r}, which does not "
-                    f"declare it as an input (it declares: {declared}).")
+                    f"edge {e!r} delivers {arrives.name!r}{how} to {e.target.name!r}, which does "
+                    f"not declare it as an input (it declares: {declared}).")
     return findings
 
 

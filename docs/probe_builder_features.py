@@ -249,16 +249,21 @@ MATRIX: dict[str, tuple[str, str]] = {
     "join":             ("yes", "JoinSpec, in `joins` — it carries a reducer, so nothing binds it"),
     "decision":         ("yes", "DecisionSpec in `decisions`; branches are EdgeSpec(..., when=T)"),
     "match":            ("partial", "the TYPE form is `when=`. The `matches=` PREDICATE form is "
-                                    "not declarable — an EdgeSpec has nowhere to put a callable"),
-    "edge_from":        ("partial", "one source per EdgeSpec. Several edges into one join is the "
-                                    "declared fan-in; `edge_from(a, b)` as one call is not"),
+                                    "DELIBERATELY not declarable: a callable in the declaration "
+                                    "is an implementation, which diagram() cannot draw and "
+                                    "varies() cannot compare. Return a discriminating type from a "
+                                    "step instead — see stage9"),
+    "edge_from":        ("yes", "several edges into one target. MEASURED byte-identical to "
+                                "`edge_from(a, b).to(t)` in one call"),
     "add":              ("yes", "what the default build_pydantic_structure() does, per edge"),
     "add_edge":         ("yes", "same wire as an EdgeSpec, expressed as a helper"),
-    "stream":           ("no", "a streaming step body. NodeSpec assumes `(ctx) -> Out`"),
-    "node":             ("no", "the BaseNode class-based authoring API — an alternative to `step` "
-                               "entirely, with no NodeSpec equivalent"),
+    "stream":           ("yes", "NodeSpec(streams=True). Its output is an AsyncIterable, so "
+                                "the items are fanned out by `map_over` on the outgoing edge"),
+    "node":             ("no", "a BaseNode RETURNS ITS OWN SUCCESSOR, so its topology lives "
+                               "inside its implementation. Declaring edges for it would be a "
+                               "guess. Not a gap — a different authoring model"),
     "match_node":       ("no", "branch on a BaseNode subclass; follows `node` being unsupported"),
-    "add_mapping_edge": ("no", "the convenience form of `.map()` — fan-out, see below"),
+    "add_mapping_edge": ("yes", "EdgeSpec(..., map_over=item) — the same fan-out, as data"),
     "build":            ("plumbing", "called by render()"),
     "decision_note":    ("yes", "DecisionSpec.note"),
     "Source":           ("plumbing", "a typing helper"),
@@ -267,11 +272,15 @@ MATRIX: dict[str, tuple[str, str]] = {
     "end_node":         ("plumbing", "END"),
 }
 EDGE_MATRIX: dict[str, tuple[str, str]] = {
-    "to":        ("partial", "single destination yes; `to(a, b, ...)` multi-destination is a fork"),
+    "to":        ("yes", "EdgeSpec. Multi-destination is a fork — several edges from one source"),
     "label":     ("yes", "EdgeSpec.label"),
-    "map":       ("no", "no EdgeSpec field says 'iterate this edge'"),
-    "transform": ("no", "no EdgeSpec field for a transform function"),
-    "broadcast": ("no", "one EdgeSpec is one wire; a fork is a set of them sharing a fork id"),
+    "map":       ("yes", "EdgeSpec(..., map_over=item): `variable` is the collection on the wire, "
+                         "`map_over` the item the target receives. Naming both keeps both checked"),
+    "broadcast": ("yes", "several edges from one source. MEASURED: same topology as an explicit "
+                         "broadcast() apart from the fork node's generated name"),
+    "transform": ("no", "DELIBERATELY. A callable on an edge is an implementation living in the "
+                        "declaration. If it deserves a name it is a NodeSpec; if not, it is an "
+                        "optimisation"),
 }
 
 ORDER = {"yes": 0, "partial": 1, "no": 2, "plumbing": 3}
