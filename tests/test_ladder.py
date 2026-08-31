@@ -494,3 +494,24 @@ def test_rung10_two_arms_gate_differently_without_moving_the_topology() -> None:
     log = Log()
     spec.render(permissive).run_sync(inputs="my cat is unwell", state=log)
     assert "publish" in log.steps, "the permissive arm should have built it anyway"
+
+
+def test_the_executor_doc_claims_still_hold() -> None:
+    """⛔ `docs/how-it-runs.md` describes pydantic-graph's INTERNALS, which is the shape that goes
+    stale silently: their code is free to change and nothing reads a prose file and compares it to
+    a library.
+
+    So the page asserts nothing the probe does not print, and this runs the probe. Nine claims —
+    the routing table, the build-time elimination of map/broadcast, transform surviving to
+    runtime, an async transform yielding a coroutine, fork nesting, and map+transform composing on
+    one edge. If they change any of it, this goes red before the page becomes fiction.
+    """
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+    proc = subprocess.run([sys.executable, "docs/probe_executor.py"],
+                          cwd=root, capture_output=True, text=True, timeout=300)
+    assert proc.returncode == 0, proc.stdout[-3000:] + proc.stderr[-1000:]
+    assert "all claims hold" in proc.stdout, proc.stdout[-1500:]

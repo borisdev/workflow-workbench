@@ -232,6 +232,17 @@ python3 -m workflow_workbench.cli serve --host 0.0.0.0 --port 8800
 pydantic) and never on the **engine**. Hosting the viewer does not require pydantic-graph, so a
 report can be displayed somewhere that cannot build graphs.
 
+## How it actually runs
+
+[`docs/how-it-runs.md`](docs/how-it-runs.md) — Pydantic Graph's executor from the source: the task
+scheduler, the routing table, why `map` becomes a node at build time while `transform` stays on
+the wire and runs per completion, and why a fan-out needs a join. Then how a `GraphSpec` maps onto
+all of it, and the two places the mapping loses information.
+
+Most of it is not in their docs, so every claim on the page is printed by
+[`docs/probe_executor.py`](docs/probe_executor.py) and the probe is run by the test suite — a page
+about someone else's internals goes stale silently otherwise.
+
 ## Verify it rather than believe it
 
 ```bash
@@ -239,6 +250,7 @@ uv run pytest -q
 uv run python3 docs/probe_api.py                  # every claim above, against the real library
 uv run python3 docs/probe_parallel_and_evals.py
 uv run python3 docs/probe_builder_features.py     # what the declaration can and cannot express
+uv run python3 docs/probe_executor.py             # every claim in docs/how-it-runs.md
 uv run python3 examples/counter.py
 uv run python3 examples/parallel.py
 uv run python3 examples/subgraph.py
