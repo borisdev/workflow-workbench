@@ -50,10 +50,10 @@ class TranslatedHello(GraphSpec):
     state_type = Guest
     input_type, output_type = str, str
     nodes = (pick, compose, translate)
-    edges = (EdgeSpec(START, pick, name_in),
-             EdgeSpec(pick, compose, salutation),
-             EdgeSpec(compose, translate, greeting),
-             EdgeSpec(translate, END, spoken))
+    edges = (EdgeSpec(source=START, target=pick, carries=name_in),
+             EdgeSpec(source=pick, target=compose, carries=salutation),
+             EdgeSpec(source=compose, target=translate, carries=greeting),
+             EdgeSpec(source=translate, target=END, carries=spoken))
 
 
 async def translate_none(ctx) -> str:

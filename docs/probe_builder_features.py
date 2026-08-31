@@ -216,7 +216,7 @@ class Declarative(GraphSpec):
     name = "declarative"
     input_type, output_type = int, int
     nodes = (double,)
-    edges = (EdgeSpec(START, double, n), EdgeSpec(double, END, n))
+    edges = (EdgeSpec(source=START, target=double, carries=n), EdgeSpec(source=double, target=END, carries=n))
 
 
 async def dbl(ctx) -> int:

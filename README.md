@@ -295,7 +295,7 @@ g.add_edge(a, b, label='count')
 Workflow Workbench:
 
 ```python
-EdgeSpec(a, b, count)          # `carries` IS the label
+EdgeSpec(source=a, target=b, carries=count)          # `carries` IS the label
 ```
 
 ### `join` — **yes**
@@ -328,7 +328,7 @@ g.edge_from(g.start_node).map().to(square)
 Workflow Workbench:
 
 ```python
-MapEdgeSpec(START, square, numbers, number)
+MapEdgeSpec(source=START, target=square, carries=numbers, delivers=number)
 ```
 
 > `carries` is the collection on the wire, `delivers` the item the target receives. Naming both is what keeps both ends checked.
@@ -347,8 +347,8 @@ Workflow Workbench:
 
 ```python
 route = DecisionSpec("route")
-EdgeSpec(route, escalate, v, when=Urgent)
-EdgeSpec(route, research, v, when=Routine)
+EdgeSpec(source=route, target=escalate, carries=v, when=Urgent)
+EdgeSpec(source=route, target=research, carries=v, when=Routine)
 ```
 
 > The condition lives on the EDGE so `edges` stays the only place topology is written. A decision binds nothing, so two arms are guaranteed to route identically.
@@ -368,7 +368,7 @@ Workflow Workbench:
 
 ```python
 split = NodeSpec("split", inputs=(text,), outputs=(words,), streams=True)
-MapEdgeSpec(split, collect, words, word)   # its output is an AsyncIterable
+MapEdgeSpec(source=split, target=collect, carries=words, delivers=word)   # its output is an AsyncIterable
 ```
 
 > A flag on NodeSpec, not its own type: a stream IS a role a strategy fills.
@@ -384,7 +384,7 @@ g.edge_from(a).broadcast(lambda eb: [eb.to(x), eb.to(y)])
 Workflow Workbench:
 
 ```python
-EdgeSpec(a, x, v)
+EdgeSpec(source=a, target=x, carries=v)
 EdgeSpec(a, y, v)      # two edges from one source
 ```
 
@@ -401,7 +401,7 @@ g.edge_from(a, b).to(sink)
 Workflow Workbench:
 
 ```python
-EdgeSpec(a, sink, v)
+EdgeSpec(source=a, target=sink, carries=v)
 EdgeSpec(b, sink, v)
 ```
 
@@ -420,7 +420,7 @@ Workflow Workbench:
 ```python
 # not declarable. Return a discriminating TYPE from a step instead:
 async def triage(ctx) -> Urgent | Routine: ...
-EdgeSpec(route, escalate, v, when=Urgent)
+EdgeSpec(source=route, target=escalate, carries=v, when=Urgent)
 ```
 
 > REFUSED, not missing. A callable in the declaration is an implementation: `diagram()` cannot draw it and `varies()` cannot compare two. Making the decision a typed value is the better design anyway — it becomes something you can see and battle.
@@ -437,9 +437,9 @@ Workflow Workbench:
 
 ```python
 # fixed — part of the design, like a JoinSpec's reducer:
-TransformEdgeSpec(propose, cite, draft, edge_list, apply=take_edges)
+TransformEdgeSpec(source=propose, target=cite, carries=draft, delivers=edge_list, apply=take_edges)
 # or a variation point — every strategy binds it, and varies() reports it:
-shape = TransformEdgeSpec(propose, cite, draft, edge_list)
+shape = TransformEdgeSpec(source=propose, target=cite, carries=draft, delivers=edge_list)
 StrategySpec("all", {..., shape: all_edges})
 ```
 
@@ -459,10 +459,10 @@ Workflow Workbench:
 
 ```python
 # no equivalent for the CLASS. All three things it is used FOR are declarable:
-EdgeSpec(gate, END, v, when=NotAPlan)      # 1. stop early  (their End(...))
-EdgeSpec(again, retry_seed, v, when=Thin)  # 2. go back     (a loop)
-EdgeSpec(unwrap, propose, seed)
-EdgeSpec(route, escalate, v, when=Urgent)  # 3. dispatch    (pick a successor)
+EdgeSpec(source=gate, target=END, carries=v, when=NotAPlan)      # 1. stop early  (their End(...))
+EdgeSpec(source=again, target=retry_seed, carries=v, when=Thin)  # 2. go back     (a loop)
+EdgeSpec(source=unwrap, target=propose, carries=seed)
+EdgeSpec(source=route, target=escalate, carries=v, when=Urgent)  # 3. dispatch    (pick a successor)
 ```
 
 > A BaseNode's topology lives inside its implementation, so declared `edges` would be a lie it is free to ignore — two arms binding different BaseNodes could be two different graphs while `diff_diagram()` drew them as one. ⚠️ But what is lost is the AUTHORING STYLE, not the capability: `examples/ladder/stage10_no_basenode.py` does all three in one design. The real cost is porting an existing BaseNode app, and one converter node wherever two paths reach the same step carrying different variables.

@@ -73,9 +73,9 @@ class Translation(GraphSpec):
     state_type = TracedGuest
     input_type, output_type = str, str
     nodes = (detect, render)
-    edges = (EdgeSpec(START, detect, greeting),
-             EdgeSpec(detect, render, language),
-             EdgeSpec(render, END, spoken))
+    edges = (EdgeSpec(source=START, target=detect, carries=greeting),
+             EdgeSpec(source=detect, target=render, carries=language),
+             EdgeSpec(source=render, target=END, carries=spoken))
 
 
 async def detect_language(ctx) -> str:

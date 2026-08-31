@@ -35,9 +35,9 @@ class Counter(GraphSpec):
     state_type, input_type, output_type = CounterState, int, int
     nodes = (increment, double_it)
     edges = (
-        EdgeSpec(START, increment, seed),
-        EdgeSpec(increment, double_it, count),
-        EdgeSpec(double_it, END, count),
+        EdgeSpec(source=START, target=increment, carries=seed),
+        EdgeSpec(source=increment, target=double_it, carries=count),
+        EdgeSpec(source=double_it, target=END, carries=count),
     )
 
 

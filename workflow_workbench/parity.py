@@ -48,7 +48,7 @@ FEATURES: tuple[Feature, ...] = (
     Feature(
         "add / add_edge / label", "yes",
         "g.add(g.edge_from(a).to(b))\ng.add_edge(a, b, label='count')",
-        "EdgeSpec(a, b, count)          # `carries` IS the label",
+        "EdgeSpec(source=a, target=b, carries=count)          # `carries` IS the label",
         "",
     ),
     Feature(
@@ -63,7 +63,7 @@ FEATURES: tuple[Feature, ...] = (
     Feature(
         "map / add_mapping_edge", "yes",
         "g.edge_from(g.start_node).map().to(square)",
-        "MapEdgeSpec(START, square, numbers, number)",
+        "MapEdgeSpec(source=START, target=square, carries=numbers, delivers=number)",
         "`carries` is the collection on the wire, `delivers` the item the target receives. "
         "Naming both is what keeps both ends checked.",
     ),
@@ -73,8 +73,8 @@ FEATURES: tuple[Feature, ...] = (
         "d = d.branch(g.match(Urgent).to(escalate))\n"
         "d = d.branch(g.match(Routine).to(research))",
         'route = DecisionSpec("route")\n'
-        "EdgeSpec(route, escalate, v, when=Urgent)\n"
-        "EdgeSpec(route, research, v, when=Routine)",
+        "EdgeSpec(source=route, target=escalate, carries=v, when=Urgent)\n"
+        "EdgeSpec(source=route, target=research, carries=v, when=Routine)",
         "The condition lives on the EDGE so `edges` stays the only place topology is written. "
         "A decision binds nothing, so two arms are guaranteed to route identically.",
     ),
@@ -82,20 +82,20 @@ FEATURES: tuple[Feature, ...] = (
         "stream", "yes",
         "@g.stream\nasync def split(ctx):\n    for w in ctx.inputs.split():\n        yield w",
         'split = NodeSpec("split", inputs=(text,), outputs=(words,), streams=True)\n'
-        "MapEdgeSpec(split, collect, words, word)   # its output is an AsyncIterable",
+        "MapEdgeSpec(source=split, target=collect, carries=words, delivers=word)   # its output is an AsyncIterable",
         "A flag on NodeSpec, not its own type: a stream IS a role a strategy fills.",
     ),
     Feature(
         "broadcast", "yes",
         "g.edge_from(a).broadcast(lambda eb: [eb.to(x), eb.to(y)])",
-        "EdgeSpec(a, x, v)\nEdgeSpec(a, y, v)      # two edges from one source",
+        "EdgeSpec(source=a, target=x, carries=v)\nEdgeSpec(a, y, v)      # two edges from one source",
         "MEASURED equivalent: same topology, same answer. Only the generated fork node's name "
         "differs. No vocabulary was added for it.",
     ),
     Feature(
         "edge_from(*sources) / to(a, b)", "yes",
         "g.edge_from(a, b).to(sink)",
-        "EdgeSpec(a, sink, v)\nEdgeSpec(b, sink, v)",
+        "EdgeSpec(source=a, target=sink, carries=v)\nEdgeSpec(b, sink, v)",
         "MEASURED byte-identical. ⚠️ But two producers into one STEP is a real defect — the step "
         "runs once per edge and one result is discarded. Use a JoinSpec; `check_step_arity` "
         "refuses the other shape.",
@@ -105,7 +105,7 @@ FEATURES: tuple[Feature, ...] = (
         "d.branch(g.match(int, matches=lambda v: v > 10).to(big))",
         "# not declarable. Return a discriminating TYPE from a step instead:\n"
         "async def triage(ctx) -> Urgent | Routine: ...\n"
-        "EdgeSpec(route, escalate, v, when=Urgent)",
+        "EdgeSpec(source=route, target=escalate, carries=v, when=Urgent)",
         "REFUSED, not missing. A callable in the declaration is an implementation: `diagram()` "
         "cannot draw it and `varies()` cannot compare two. Making the decision a typed value is "
         "the better design anyway — it becomes something you can see and battle.",
@@ -114,9 +114,9 @@ FEATURES: tuple[Feature, ...] = (
         "transform", "yes",
         "g.edge_from(a).transform(lambda ctx: ctx.inputs.edges).to(b)",
         "# fixed — part of the design, like a JoinSpec's reducer:\n"
-        "TransformEdgeSpec(propose, cite, draft, edge_list, apply=take_edges)\n"
+        "TransformEdgeSpec(source=propose, target=cite, carries=draft, delivers=edge_list, apply=take_edges)\n"
         "# or a variation point — every strategy binds it, and varies() reports it:\n"
-        "shape = TransformEdgeSpec(propose, cite, draft, edge_list)\n"
+        "shape = TransformEdgeSpec(source=propose, target=cite, carries=draft, delivers=edge_list)\n"
         'StrategySpec("all", {..., shape: all_edges})',
         "Emits NO node, exactly as theirs does, so the diagram tags the arrow rather than adding "
         "a box — a reshape is not a stage and drawing it as one misleads. `variable` is what "
@@ -130,10 +130,10 @@ FEATURES: tuple[Feature, ...] = (
         "    async def run(self, ctx) -> DoubleIt:       # names its OWN successor\n"
         "        return DoubleIt(...)",
         "# no equivalent for the CLASS. All three things it is used FOR are declarable:\n"
-        "EdgeSpec(gate, END, v, when=NotAPlan)      # 1. stop early  (their End(...))\n"
-        "EdgeSpec(again, retry_seed, v, when=Thin)  # 2. go back     (a loop)\n"
-        "EdgeSpec(unwrap, propose, seed)\n"
-        "EdgeSpec(route, escalate, v, when=Urgent)  # 3. dispatch    (pick a successor)",
+        "EdgeSpec(source=gate, target=END, carries=v, when=NotAPlan)      # 1. stop early  (their End(...))\n"
+        "EdgeSpec(source=again, target=retry_seed, carries=v, when=Thin)  # 2. go back     (a loop)\n"
+        "EdgeSpec(source=unwrap, target=propose, carries=seed)\n"
+        "EdgeSpec(source=route, target=escalate, carries=v, when=Urgent)  # 3. dispatch    (pick a successor)",
         "A BaseNode's topology lives inside its implementation, so declared `edges` would be a "
         "lie it is free to ignore — two arms binding different BaseNodes could be two different "
         "graphs while `diff_diagram()` drew them as one. ⚠️ But what is lost is the AUTHORING "

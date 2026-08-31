@@ -35,7 +35,7 @@ class Linear(GraphSpec):
     name = "linear"
     input_type, output_type = str, str
     nodes = (load, parse)
-    edges = (EdgeSpec(START, load, text), EdgeSpec(load, parse, text), EdgeSpec(parse, END, text))
+    edges = (EdgeSpec(source=START, target=load, carries=text), EdgeSpec(source=load, target=parse, carries=text), EdgeSpec(source=parse, target=END, carries=text))
 
 
 async def load_a(ctx) -> str:
@@ -76,14 +76,14 @@ def test_list_inputs_refused():
 
 def test_edge_cannot_start_at_end_or_end_at_start():
     with pytest.raises(SpecError):
-        EdgeSpec(END, load, text)
+        EdgeSpec(source=END, target=load, carries=text)
     with pytest.raises(SpecError):
-        EdgeSpec(load, START, text)
+        EdgeSpec(source=load, target=START, carries=text)
 
 
 def test_self_loop_refused():
     with pytest.raises(SpecError, match="self-loop"):
-        EdgeSpec(load, load, text)
+        EdgeSpec(source=load, target=load, carries=text)
 
 
 # ── checks ──────────────────────────────────────────────────────────────────────────────────
@@ -102,13 +102,13 @@ def test_check_reachable_finds_an_orphan():
 
 def test_check_reachable_terminates_on_a_cycle():
     a, b = NodeSpec("a", outputs=(text,)), NodeSpec("b", inputs=(text,), outputs=(text,))
-    edges = (EdgeSpec(START, a, text), EdgeSpec(a, b, text), EdgeSpec(b, a, text), EdgeSpec(b, END, text))
+    edges = (EdgeSpec(source=START, target=a, carries=text), EdgeSpec(source=a, target=b, carries=text), EdgeSpec(source=b, target=a, carries=text), EdgeSpec(source=b, target=END, carries=text))
     check_reachable((a, b), edges)          # must return, not hang
 
 
 def test_check_reachable_flags_an_undeclared_node():
     ghost = NodeSpec("ghost")
-    edges = (*Linear.edges, EdgeSpec(parse, ghost, text))
+    edges = (*Linear.edges, EdgeSpec(source=parse, target=ghost, carries=text))
     assert any("not in `nodes`" in f for f in check_reachable((load, parse), edges))
 
 
@@ -122,12 +122,12 @@ def test_check_variables_catches_a_swap_that_set_comparison_cannot():
     split = NodeSpec("split", outputs=(a, b))
     ca = NodeSpec("consume_a", inputs=(a,))
     cb = NodeSpec("consume_b", inputs=(b,))
-    swapped = (EdgeSpec(split, ca, b), EdgeSpec(split, cb, a))       # ⛔ crossed
+    swapped = (EdgeSpec(source=split, target=ca, carries=b), EdgeSpec(source=split, target=cb, carries=a))       # ⛔ crossed
 
     findings = check_variables((split, ca, cb), swapped)
     assert findings, "the swap was not caught"
 
-    correct = (EdgeSpec(split, ca, a), EdgeSpec(split, cb, b))
+    correct = (EdgeSpec(source=split, target=ca, carries=a), EdgeSpec(source=split, target=cb, carries=b))
     assert not check_variables((split, ca, cb), correct)
 
     # And the aggregate form this replaces would NOT have caught it — proven, not asserted.
@@ -239,3 +239,32 @@ def test_two_rendered_graphs_of_one_design_render_identically():
     a, b = Linear().render(arm_a), Linear().render(arm_b)
     assert a.render() == b.render()
     assert Linear().diff_diagram(arm_a, arm_b) != Linear().diagram()
+
+
+def test_every_edge_field_is_keyword_only():
+    """⛔ Guards a deliberate ergonomic trade, so it is not silently undone.
+
+    Four slots that look interchangeable: `source` and `target` are the same type, and so are
+    `carries` and `delivers`. Some transpositions are caught downstream — `check_variables`
+    notices when a source does not declare what the edge carries — and some are NOT: in a chain
+    where every wire carries the same variable, reversing two endpoints stays legal.
+
+    ⚠️ The cost was argued before it was taken: `edges` is the most-read part of a design and the
+    positional form read like the arrow it draws. Written down so the trade stays visible rather
+    than becoming folklore.
+    """
+    import inspect
+
+    from workflow_workbench import MapEdgeSpec, TransformEdgeSpec
+
+    for cls in (EdgeSpec, MapEdgeSpec, TransformEdgeSpec):
+        params = list(inspect.signature(cls).parameters.values())
+        positional = [p for p in params if p.kind is not p.KEYWORD_ONLY]
+        assert not positional, f"{cls.__name__} accepts positional args: {positional}"
+
+
+def test_a_plain_edge_cannot_deliver_something_else():
+    """`delivers` lives on the base so one field covers all three kinds — but a plain edge has no
+    mechanism to convert, so declaring a different arrival would be a claim it cannot honour."""
+    with pytest.raises(SpecError, match="cannot deliver something other than it carries"):
+        EdgeSpec(source=load, target=parse, carries=text, delivers=VariableSpec("other", int))

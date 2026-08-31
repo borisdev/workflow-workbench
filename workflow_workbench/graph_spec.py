@@ -39,9 +39,9 @@ class GraphSpec:
             name = "extraction"
             input_type, output_type = SourceText, ExtractedFacts
             nodes = (load, extract)
-            edges = (EdgeSpec(START, load),
-                     EdgeSpec(load, extract, raw_text),
-                     EdgeSpec(extract, END))
+            edges = (EdgeSpec(source=START, target=load),
+                     EdgeSpec(source=load, target=extract, carries=raw_text),
+                     EdgeSpec(source=extract, target=END))
 
     The DAG is DATA, not code — which is what lets `check()` and `diagram()` run with zero
     implementations and no engine.

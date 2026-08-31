@@ -115,7 +115,7 @@ class NodeSpec:
     ⚠️ Before concluding that costs anything: the three things BaseNode is actually USED for are
     all declarable, and `examples/ladder/stage10_no_basenode.py` does all three in one design.
 
-        stop early   `EdgeSpec(gate, END, v, when=NotAPlan)` — their `End(...)`, as a branch
+        stop early   `EdgeSpec(source=gate, target=END, carries=v, when=NotAPlan)` — their `End(...)`, as a branch
                      with no node on it
         go back      a branch to an earlier node. `_back_edges` knows it is not a fan-in
         dispatch     return a discriminating TYPE and branch on it with `when=`
@@ -176,7 +176,7 @@ class NodeSpec:
                 f"({', '.join(str(v) for v in self.outputs)}))")
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class EdgeSpec:
     """One wire: `source -> target`, carrying `carries`.
 
@@ -223,19 +223,32 @@ class EdgeSpec:
     source: Any                       # NodeSpec | DecisionSpec | _Start
     target: Any                       # NodeSpec | JoinSpec | DecisionSpec | _End
     carries: VariableSpec
-    label: str = field(default="", kw_only=True)
-    when: type | None = field(default=None, kw_only=True)
 
-    @property
-    def delivers(self) -> VariableSpec:
-        """What ARRIVES at the target. Same as `carries` unless a subclass changes it.
+    # ⚠️ KEYWORD-ONLY, every field. Four slots that look interchangeable: `source` and `target`
+    # are the same type, and so are `carries` and `delivers`. Some transpositions are caught
+    # downstream — `check_variables` notices if the source does not declare what the edge carries
+    # — and some are not: in a chain where every wire carries `text`, reversing two endpoints
+    # stays legal. Keyword-only makes the class of mistake unwritable rather than
+    # mostly-detectable.
+    #
+    # ⚠️ The cost is real and was argued before it was accepted: `edges` is the most-read part of
+    # a design, and `EdgeSpec(START, propose, plan_text)` read like the arrow it draws. The
+    # keyword form is about three times wider. Recorded so the trade stays visible.
+    delivers: VariableSpec | None = None
+    """What ARRIVES at the target. Defaults to `carries` — a plain edge changes nothing.
 
-        ⚠️ One property, where there used to be two fields under two names — `map_over` on the
-        base and `produces` on the transform subclass, both meaning "what arrives when it differs
-        from what left". Two words for one concept is `domain-language.md` rule 1, and I invented
-        the second without noticing I had already invented the first.
-        """
-        return self.carries
+    ⚠️ ONE field, where there were two under two names: `map_over` on the base and `produces` on
+    the transform subclass, both meaning "what arrives when it differs from what left". Two words
+    for one concept is `domain-language.md` rule 1, and I coined the second without noticing I had
+    already coined the first.
+
+    ⚠️ A real field and not a property, which was the first attempt: a getter-only property is a
+    DATA DESCRIPTOR, so a subclass declaring `delivers` as a dataclass field cannot be
+    constructed — even a frozen dataclass's `object.__setattr__` respects it. Recorded because the
+    failure reads as a dataclass problem and is a descriptor-protocol one.
+    """
+    label: str = ""
+    when: type | None = None
 
     def __post_init__(self) -> None:
         if isinstance(self.source, _End):
@@ -244,6 +257,14 @@ class EdgeSpec:
             raise SpecError("an edge cannot end at START")
         if self.source is self.target:
             raise SpecError(f"self-loop on {self.source!r}: an edge from a node to itself")
+        if self.delivers is None:
+            object.__setattr__(self, "delivers", self.carries)
+        elif type(self) is EdgeSpec and self.delivers is not self.carries:
+            raise SpecError(
+                f"a plain edge {_ep_name(self.source)} -> {_ep_name(self.target)} cannot deliver "
+                f"something other than it carries — there is no mechanism on it to convert. Use a "
+                f"MapEdgeSpec to deliver one item of a collection, or a TransformEdgeSpec to "
+                f"reshape the value.")
         if not isinstance(self.carries, VariableSpec):
             raise SpecError(
                 f"edge {_ep_name(self.source)} -> {_ep_name(self.target)} must name what it "
@@ -260,7 +281,7 @@ class EdgeSpec:
                 f" [{self.carries.name}{arrives}])")
 
 
-@dataclass(frozen=True, repr=False)
+@dataclass(frozen=True, kw_only=True, repr=False)
 class MapEdgeSpec(EdgeSpec):
     """Fan out: `carries` is a collection, and the target runs ONCE PER `delivers`.
 
@@ -276,9 +297,9 @@ class MapEdgeSpec(EdgeSpec):
         total = JoinSpec("total", reduce_sum, initial=0.0,
                          inputs=(cost,), outputs=(bill,))
 
-        MapEdgeSpec(START, price, shopping, item)     # the list crosses, one item lands
-        EdgeSpec(price, total, cost)
-        EdgeSpec(total, END, bill)
+        MapEdgeSpec(source=START, target=price, carries=shopping, delivers=item)     # the list crosses, one item lands
+        EdgeSpec(source=price, target=total, carries=cost)
+        EdgeSpec(source=total, target=END, carries=bill)
 
     `price` never sees the list. It is called three times, once per item, and `total` adds up the
     three answers.
@@ -305,24 +326,18 @@ class MapEdgeSpec(EdgeSpec):
     byte-identical to `edge_from(a, b).to(t)`.
     """
 
-    delivers: VariableSpec = None  # type: ignore[assignment]
-
-    def __post_init__(self) -> None:
-        super().__post_init__()
-        if not isinstance(self.delivers, VariableSpec):
-            raise SpecError(f"{self!r} needs `delivers` — the ITEM the target receives, which is "
-                            f"not the collection on the wire.")
+    delivers: VariableSpec
 
 
 def _ep_name(ep: Any) -> str:
     return "START" if isinstance(ep, _Start) else "END" if isinstance(ep, _End) else ep.name
 
 
-@dataclass(frozen=True, eq=False, repr=False)
+@dataclass(frozen=True, eq=False, kw_only=True, repr=False)
 class TransformEdgeSpec(EdgeSpec):
     """A cheap SYNCHRONOUS reshape that happens ON THE WIRE, creating no node.
 
-        prune = TransformEdgeSpec(propose, cite, draft_graph, edge_list, apply=take_edges)
+        prune = TransformEdgeSpec(source=propose, target=cite, carries=draft_graph, delivers=edge_list, apply=take_edges)
 
     `carries` is what leaves the source; `delivers` is what arrives at the target. In between,
     one sync callable. pydantic-graph builds this with `.transform()` and emits NO node for it —
@@ -365,24 +380,25 @@ class TransformEdgeSpec(EdgeSpec):
     beside `LabelMarker` rather than beside a node type. Do not cite it back as theirs.
     """
 
-    delivers: VariableSpec = None  # type: ignore[assignment]
+    delivers: VariableSpec = None  # type: ignore[assignment]  # required; see __post_init__
     apply: Callable[..., Any] | None = None
 
     def __post_init__(self) -> None:
-        super().__post_init__()
-        if not isinstance(self.delivers, VariableSpec):
+        if self.delivers is None:
             raise SpecError(
-                f"{self!r} needs `delivers` — the variable that ARRIVES at the target. Without it "
-                f"the transform's output is undeclared, so nothing can check what it returns and "
-                f"the diagram cannot say what crosses the second half of the wire.")
+                f"a transform {_ep_name(self.source)} -> {_ep_name(self.target)} needs "
+                f"`delivers` — the variable that ARRIVES. Without it the transform's output is "
+                f"undeclared, so nothing can check what it returns and the diagram cannot say "
+                f"what crosses the second half of the wire.")
+        super().__post_init__()
         if self.apply is not None and not callable(self.apply):
             raise SpecError(f"{self!r}: `apply` must be callable")
 
     def __repr__(self) -> str:
         how = getattr(self.apply, "__name__", "bound by strategy") if self.apply else "unbound"
         arrives = self.delivers.name if self.delivers is not None else "?"
-        return (f"TransformEdgeSpec({_ep_name(self.source)} -> {_ep_name(self.target)}"
-                f" [{self.carries.name} -> {arrives}], {how})")
+        return (f"TransformEdgeSpec(source={_ep_name(self.source)} -> {_ep_name(self.target)}"
+                f" [{self.carries.name} -> {arrives}], target={how})")
 
 
 @dataclass(frozen=True, eq=False)
@@ -443,9 +459,9 @@ class DecisionSpec:
 
         route = DecisionSpec("route", note="urgent or not")
 
-        edges = (EdgeSpec(triage, route, verdict),
-                 EdgeSpec(route, escalate, urgent,  when=Urgent),
-                 EdgeSpec(route, research, routine, when=Routine))
+        edges = (EdgeSpec(source=triage, target=route, carries=verdict),
+                 EdgeSpec(source=route, target=escalate, carries=urgent,  when=Urgent),
+                 EdgeSpec(source=route, target=research, carries=routine, when=Routine))
 
     ⚠️ Like `JoinSpec`, it has NO implementation and lives in `decisions`, not `nodes`. There is no
     body to write — the routing IS the declaration. A strategy binds nothing for it, so two arms

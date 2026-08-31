@@ -18,7 +18,7 @@ class S(GraphSpec):
     name = "s"
     input_type = output_type = str
     nodes = (a, b)
-    edges = (EdgeSpec(START, a, v), EdgeSpec(a, b, v), EdgeSpec(b, END, v))
+    edges = (EdgeSpec(source=START, target=a, carries=v), EdgeSpec(source=a, target=b, carries=v), EdgeSpec(source=b, target=END, carries=v))
 
 
 async def one(ctx) -> str:

@@ -42,9 +42,9 @@ class Extraction(GraphSpec):
     input_type, output_type = str, list
     nodes = (extract, verify)
     edges = (
-        EdgeSpec(START, extract, source_text),
-        EdgeSpec(extract, verify, candidate_facts),   # the CANDIDATES, not the rejects
-        EdgeSpec(verify, END, kept_facts),
+        EdgeSpec(source=START, target=extract, carries=source_text),
+        EdgeSpec(source=extract, target=verify, carries=candidate_facts),   # the CANDIDATES, not the rejects
+        EdgeSpec(source=verify, target=END, carries=kept_facts),
     )
 
 
@@ -85,9 +85,9 @@ def main() -> None:
     class Swapped(Extraction):
         name = "extraction-swapped"
         edges = (
-            EdgeSpec(START, extract, source_text),
-            EdgeSpec(extract, verify, rejected_facts),   # ⛔ wrong variable, same TYPE
-            EdgeSpec(verify, END, kept_facts),
+            EdgeSpec(source=START, target=extract, carries=source_text),
+            EdgeSpec(source=extract, target=verify, carries=rejected_facts),   # ⛔ wrong variable, same TYPE
+            EdgeSpec(source=verify, target=END, carries=kept_facts),
         )
 
     print("\nthe same design with the verifier wired to `rejected_facts` "

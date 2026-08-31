@@ -72,12 +72,12 @@ class Greetings(GraphSpec):
     input_type, output_type = str, str
     nodes = (say_formal, say_casual, announce)
     joins = (collect,)
-    edges = (EdgeSpec(START, say_formal, name_in),
-             EdgeSpec(START, say_casual, name_in),
-             EdgeSpec(say_formal, collect, formal_line),
-             EdgeSpec(say_casual, collect, casual_line),
-             EdgeSpec(collect, announce, both),
-             EdgeSpec(announce, END, announcement))
+    edges = (EdgeSpec(source=START, target=say_formal, carries=name_in),
+             EdgeSpec(source=START, target=say_casual, carries=name_in),
+             EdgeSpec(source=say_formal, target=collect, carries=formal_line),
+             EdgeSpec(source=say_casual, target=collect, carries=casual_line),
+             EdgeSpec(source=collect, target=announce, carries=both),
+             EdgeSpec(source=announce, target=END, carries=announcement))
 
 
 async def formal(ctx) -> str:
@@ -110,12 +110,12 @@ class BrokenGreetings(Greetings):
     name = "broken_greetings"
     nodes = (say_formal, say_casual, collect_as_step, announce)
     joins = ()
-    edges = (EdgeSpec(START, say_formal, name_in),
-             EdgeSpec(START, say_casual, name_in),
-             EdgeSpec(say_formal, collect_as_step, formal_line),
-             EdgeSpec(say_casual, collect_as_step, casual_line),
-             EdgeSpec(collect_as_step, announce, both),
-             EdgeSpec(announce, END, announcement))
+    edges = (EdgeSpec(source=START, target=say_formal, carries=name_in),
+             EdgeSpec(source=START, target=say_casual, carries=name_in),
+             EdgeSpec(source=say_formal, target=collect_as_step, carries=formal_line),
+             EdgeSpec(source=say_casual, target=collect_as_step, carries=casual_line),
+             EdgeSpec(source=collect_as_step, target=announce, carries=both),
+             EdgeSpec(source=announce, target=END, carries=announcement))
 
 
 def main() -> None:

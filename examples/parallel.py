@@ -9,7 +9,7 @@ and `JoinSpec` in `joins` say the same thing as data, so this design is checked,
 diffed like any other — where before, reaching for `.map()` cost reachability checking on every
 node in the file.
 
-    MapEdgeSpec(START, transform, numbers, number)          the collection crosses, one item lands
+    MapEdgeSpec(source=START, target=transform, carries=numbers, delivers=number)          the collection crosses, one item lands
     JoinSpec("collect", reduce_sum, initial=0, ...)         and the items are reduced
 
 ⚠️ `carries` is the collection, `delivers` the item. Both ends get checked that way: the wire
@@ -53,9 +53,9 @@ class ParallelProcessing(GraphSpec):
     input_type, output_type = list[int], int
     nodes = (transform,)
     joins = (collect,)
-    edges = (MapEdgeSpec(START, transform, numbers, number),
-             EdgeSpec(transform, collect, number),
-             EdgeSpec(collect, END, total))
+    edges = (MapEdgeSpec(source=START, target=transform, carries=numbers, delivers=number),
+             EdgeSpec(source=transform, target=collect, carries=number),
+             EdgeSpec(source=collect, target=END, carries=total))
 
 
 async def square(ctx) -> int:

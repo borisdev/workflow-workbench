@@ -52,9 +52,9 @@ def test_a_fan_out_names_the_item_so_both_ends_are_checked() -> None:
         input_type, output_type = list, int
         nodes = (step,)
         joins = (collect,)
-        edges = (MapEdgeSpec(START, step, numbers, wrong_item),
-                 EdgeSpec(step, collect, number),
-                 EdgeSpec(collect, END, total))
+        edges = (MapEdgeSpec(source=START, target=step, carries=numbers, delivers=wrong_item),
+                 EdgeSpec(source=step, target=collect, carries=number),
+                 EdgeSpec(source=collect, target=END, carries=total))
 
     async def double(ctx) -> int:
         return ctx.inputs * 2
@@ -74,7 +74,7 @@ def test_a_fan_out_cannot_omit_the_collection() -> None:
     step = NodeSpec("step", inputs=(number,), outputs=(number,))
 
     with pytest.raises(TypeError):
-        MapEdgeSpec(START, step)
+        MapEdgeSpec(source=START, target=step)
 
 
 def test_a_streaming_node_is_declared_and_fans_out() -> None:
@@ -93,9 +93,9 @@ def test_a_streaming_node_is_declared_and_fans_out() -> None:
         input_type, output_type = str, list
         nodes = (split,)
         joins = (collect,)
-        edges = (EdgeSpec(START, split, text),
-                 MapEdgeSpec(split, collect, words, word),
-                 EdgeSpec(collect, END, words))
+        edges = (EdgeSpec(source=START, target=split, carries=text),
+                 MapEdgeSpec(source=split, target=collect, carries=words, delivers=word),
+                 EdgeSpec(source=collect, target=END, carries=words))
 
     async def by_space(ctx):
         for w in ctx.inputs.split():
@@ -128,7 +128,7 @@ def test_a_generator_bound_to_a_non_streaming_node_fails_loudly() -> None:
         name = "not_streaming"
         input_type, output_type = str, object
         nodes = (node,)
-        edges = (EdgeSpec(START, node, text), EdgeSpec(node, END, out))
+        edges = (EdgeSpec(source=START, target=node, carries=text), EdgeSpec(source=node, target=END, carries=out))
 
     async def gen(ctx):
         yield ctx.inputs
@@ -158,9 +158,9 @@ def test_the_shopping_list_from_the_MapEdgeSpec_docstring_runs() -> None:
         input_type, output_type = list, float
         nodes = (price,)
         joins = (total,)
-        edges = (MapEdgeSpec(START, price, shopping, item),
-                 EdgeSpec(price, total, cost),
-                 EdgeSpec(total, END, bill))
+        edges = (MapEdgeSpec(source=START, target=price, carries=shopping, delivers=item),
+                 EdgeSpec(source=price, target=total, carries=cost),
+                 EdgeSpec(source=total, target=END, carries=bill))
 
     prices = {"milk": 1.20, "eggs": 2.50, "bread": 1.10}
     seen: list[str] = []
@@ -199,7 +199,7 @@ def test_a_fan_out_that_never_rejoins_is_refused() -> None:
         name = "no_join"
         input_type, output_type = list, float
         nodes = (price,)
-        edges = (MapEdgeSpec(START, price, shopping, item), EdgeSpec(price, END, cost))
+        edges = (MapEdgeSpec(source=START, target=price, carries=shopping, delivers=item), EdgeSpec(source=price, target=END, carries=cost))
 
     async def look_up(ctx) -> float:
         return 1.0
@@ -227,10 +227,10 @@ def test_the_join_need_not_be_adjacent_to_the_fan_out() -> None:
         input_type, output_type = list, int
         nodes = (first, second)
         joins = (total,)
-        edges = (MapEdgeSpec(START, first, items, one),
-                 EdgeSpec(first, second, one),
-                 EdgeSpec(second, total, doubled),
-                 EdgeSpec(total, END, total_v))
+        edges = (MapEdgeSpec(source=START, target=first, carries=items, delivers=one),
+                 EdgeSpec(source=first, target=second, carries=one),
+                 EdgeSpec(source=second, target=total, carries=doubled),
+                 EdgeSpec(source=total, target=END, carries=total_v))
 
     async def keep(ctx) -> int:
         return ctx.inputs

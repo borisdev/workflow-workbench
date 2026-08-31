@@ -73,8 +73,8 @@ class ExtractionWorkflow(GraphSpec):
     state_type, deps_type = ExtractionState, ExtractionDeps
     input_type, output_type = Document, Facts
     nodes = (extract,)
-    edges = (EdgeSpec(START, extract, document_value),
-             EdgeSpec(extract, END, facts_value))
+    edges = (EdgeSpec(source=START, target=extract, carries=document_value),
+             EdgeSpec(source=extract, target=END, carries=facts_value))
 
 
 # ── two ordinary callables ──────────────────────────────────────────────────────────────────
@@ -109,9 +109,9 @@ class VerifiedExtraction(GraphSpec):
     state_type, deps_type = ExtractionState, ExtractionDeps
     input_type, output_type = Document, Facts
     nodes = (generate_candidates, verify_candidates)
-    edges = (EdgeSpec(START, generate_candidates, document_value),
-             EdgeSpec(generate_candidates, verify_candidates, candidate_value),
-             EdgeSpec(verify_candidates, END, facts_value))
+    edges = (EdgeSpec(source=START, target=generate_candidates, carries=document_value),
+             EdgeSpec(source=generate_candidates, target=verify_candidates, carries=candidate_value),
+             EdgeSpec(source=verify_candidates, target=END, carries=facts_value))
 
 
 async def generate(ctx) -> Candidates:

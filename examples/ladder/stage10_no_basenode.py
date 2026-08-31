@@ -90,19 +90,19 @@ class Intake(GraphSpec):
     input_type, output_type = str, object
     nodes = (triage, accept, propose, review, retry_seed, publish)
     decisions = (gate, again)
-    edges = (EdgeSpec(START, triage, paste),
-             EdgeSpec(triage, gate, verdict),
+    edges = (EdgeSpec(source=START, target=triage, carries=paste),
+             EdgeSpec(source=triage, target=gate, carries=verdict),
              # 1. STOP EARLY — this branch has no node on it at all
-             EdgeSpec(gate, END, verdict, when=NotAPlan),
-             EdgeSpec(gate, accept, verdict, when=Plan),
-             EdgeSpec(accept, propose, paste),
-             EdgeSpec(propose, review, draft),
-             EdgeSpec(review, again, checked),
+             EdgeSpec(source=gate, target=END, carries=verdict, when=NotAPlan),
+             EdgeSpec(source=gate, target=accept, carries=verdict, when=Plan),
+             EdgeSpec(source=accept, target=propose, carries=paste),
+             EdgeSpec(source=propose, target=review, carries=draft),
+             EdgeSpec(source=review, target=again, carries=checked),
              # 2. GO BACK — a branch that returns to an earlier node
-             EdgeSpec(again, retry_seed, checked, when=TooThin),
-             EdgeSpec(retry_seed, propose, paste),
-             EdgeSpec(again, publish, checked, when=Plan),
-             EdgeSpec(publish, END, report))
+             EdgeSpec(source=again, target=retry_seed, carries=checked, when=TooThin),
+             EdgeSpec(source=retry_seed, target=propose, carries=paste),
+             EdgeSpec(source=again, target=publish, carries=checked, when=Plan),
+             EdgeSpec(source=publish, target=END, carries=report))
 
 
 async def do_triage(ctx) -> object:

@@ -134,8 +134,8 @@ def check_variables(nodes: tuple[NodeSpec, ...], edges: tuple[EdgeSpec, ...]) ->
     SWAP, which is the exact defect this check was written for:
 
         split = NodeSpec("split", outputs=(stream_a, stream_b))
-        EdgeSpec(split, consume_a, stream_b)      # swapped
-        EdgeSpec(split, consume_b, stream_a)      # swapped
+        EdgeSpec(source=split, target=consume_a, carries=stream_b)      # swapped
+        EdgeSpec(source=split, target=consume_b, carries=stream_a)      # swapped
 
     Both variables are produced, both are consumed, every set matches — and the wiring is wrong.
     Only a per-edge check sees it.
@@ -246,7 +246,7 @@ def _port_type(parent: Any, node: NodeSpec, side: str) -> tuple[Any, str | None]
     check. A node declaring no input variable is idiomatic when it is fed from START —
 
         increment = NodeSpec("increment", outputs=(count,))
-        EdgeSpec(START, increment)                       # carries the graph's own input_type
+        EdgeSpec(source=START, target=increment)                       # carries the graph's own input_type
 
     — so rejecting it would force a DESIGN edit in order to add a strategy, which is exactly the
     thing a stable `NodeSpec` is supposed to make unnecessary. There is a real type available in
@@ -435,8 +435,8 @@ def check_step_arity(nodes: tuple[NodeSpec, ...], edges: tuple[EdgeSpec, ...],
     pydantic-graph 2.35.1 with `docs/probe_builder_features.py`'s shape:
 
         merge = NodeSpec("merge", inputs=(left, right), outputs=(out,))
-        EdgeSpec(step_a, merge, left)        # step_a produced 2
-        EdgeSpec(step_b, merge, right)       # step_b produced 3
+        EdgeSpec(source=step_a, target=merge, carries=left)        # step_a produced 2
+        EdgeSpec(source=step_b, target=merge, carries=right)       # step_b produced 3
 
         merge was called 2 time(s), with [3, 2]
         run(1) -> 'got 3'                    <- step_a's result silently discarded

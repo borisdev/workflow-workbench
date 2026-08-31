@@ -352,8 +352,8 @@ def test_rung9_a_real_fan_in_is_still_caught_alongside_a_decision() -> None:
         name = "real_fan_in"
         nodes = (*Triage.nodes, sneak)
         edges = (*Triage.edges,
-                 EdgeSpec(intake, sneak, verdict),      # NOT behind the decision
-                 EdgeSpec(sneak, report, handled))      # a third, unconditional arrival
+                 EdgeSpec(source=intake, target=sneak, carries=verdict),      # NOT behind the decision
+                 EdgeSpec(source=sneak, target=report, carries=handled))      # a third, unconditional arrival
 
     findings = RealFanIn().check()
     assert any("invoked once PER EDGE" in f for f in findings), findings
@@ -376,13 +376,13 @@ def test_rung9_a_branch_without_a_condition_is_refused() -> None:
 
     class NoWhen(Triage):
         name = "no_when"
-        edges = (EdgeSpec(START, intake, complaint),
-                 EdgeSpec(intake, route, verdict),
-                 EdgeSpec(route, escalate, verdict),
-                 EdgeSpec(route, research, verdict, when=Urgent),
-                 EdgeSpec(escalate, report, handled),
-                 EdgeSpec(research, report, handled),
-                 EdgeSpec(report, END, report_out))
+        edges = (EdgeSpec(source=START, target=intake, carries=complaint),
+                 EdgeSpec(source=intake, target=route, carries=verdict),
+                 EdgeSpec(source=route, target=escalate, carries=verdict),
+                 EdgeSpec(source=route, target=research, carries=verdict, when=Urgent),
+                 EdgeSpec(source=escalate, target=report, carries=handled),
+                 EdgeSpec(source=research, target=report, carries=handled),
+                 EdgeSpec(source=report, target=END, carries=report_out))
 
     with pytest.raises(SpecError, match="without a `when=` type"):
         NoWhen().render(careful)
@@ -398,13 +398,13 @@ def test_rung9_a_condition_on_an_ordinary_edge_is_refused() -> None:
 
     class StrayWhen(Triage):
         name = "stray_when"
-        edges = (EdgeSpec(START, intake, complaint, when=Urgent),
-                 EdgeSpec(intake, route, verdict),
-                 EdgeSpec(route, escalate, verdict, when=Urgent),
-                 EdgeSpec(route, research, verdict, when=Routine),
-                 EdgeSpec(escalate, report, handled),
-                 EdgeSpec(research, report, handled),
-                 EdgeSpec(report, END, report_out))
+        edges = (EdgeSpec(source=START, target=intake, carries=complaint, when=Urgent),
+                 EdgeSpec(source=intake, target=route, carries=verdict),
+                 EdgeSpec(source=route, target=escalate, carries=verdict, when=Urgent),
+                 EdgeSpec(source=route, target=research, carries=verdict, when=Routine),
+                 EdgeSpec(source=escalate, target=report, carries=handled),
+                 EdgeSpec(source=research, target=report, carries=handled),
+                 EdgeSpec(source=report, target=END, carries=report_out))
 
     with pytest.raises(SpecError, match="is not a DecisionSpec"):
         StrayWhen().render(careful)

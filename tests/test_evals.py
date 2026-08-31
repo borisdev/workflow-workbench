@@ -17,7 +17,7 @@ class Job(GraphSpec):
     name = "job"
     input_type, output_type = str, str
     nodes = (work,)
-    edges = (EdgeSpec(START, work, text), EdgeSpec(work, END, text))
+    edges = (EdgeSpec(source=START, target=work, carries=text), EdgeSpec(source=work, target=END, carries=text))
 
 
 async def shout(ctx) -> str:

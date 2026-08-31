@@ -72,13 +72,13 @@ class Triage(GraphSpec):
     input_type, output_type = str, str
     nodes = (intake, escalate, research, report)
     decisions = (route,)
-    edges = (EdgeSpec(START, intake, complaint),
-             EdgeSpec(intake, route, verdict),
-             EdgeSpec(route, escalate, verdict, when=Urgent),
-             EdgeSpec(route, research, verdict, when=Routine),
-             EdgeSpec(escalate, report, handled),
-             EdgeSpec(research, report, handled),
-             EdgeSpec(report, END, report_out))
+    edges = (EdgeSpec(source=START, target=intake, carries=complaint),
+             EdgeSpec(source=intake, target=route, carries=verdict),
+             EdgeSpec(source=route, target=escalate, carries=verdict, when=Urgent),
+             EdgeSpec(source=route, target=research, carries=verdict, when=Routine),
+             EdgeSpec(source=escalate, target=report, carries=handled),
+             EdgeSpec(source=research, target=report, carries=handled),
+             EdgeSpec(source=report, target=END, carries=report_out))
 
 
 async def triage_keywords(ctx) -> Urgent | Routine:
@@ -142,26 +142,26 @@ def main() -> None:
 
     class NoWhen(Triage):
         name = "no_when"
-        edges = (EdgeSpec(START, intake, complaint),
-                 EdgeSpec(intake, route, verdict),
-                 EdgeSpec(route, escalate, verdict),          # <- no `when`
-                 EdgeSpec(route, research, verdict, when=Routine),
-                 EdgeSpec(escalate, report, handled),
-                 EdgeSpec(research, report, handled),
-                 EdgeSpec(report, END, report_out))
+        edges = (EdgeSpec(source=START, target=intake, carries=complaint),
+                 EdgeSpec(source=intake, target=route, carries=verdict),
+                 EdgeSpec(source=route, target=escalate, carries=verdict),          # <- no `when`
+                 EdgeSpec(source=route, target=research, carries=verdict, when=Routine),
+                 EdgeSpec(source=escalate, target=report, carries=handled),
+                 EdgeSpec(source=research, target=report, carries=handled),
+                 EdgeSpec(source=report, target=END, carries=report_out))
 
     for finding in NoWhen().check(careful):
         print(f"  {finding[:118]}...")
 
     class StrayWhen(Triage):
         name = "stray_when"
-        edges = (EdgeSpec(START, intake, complaint, when=Urgent),   # <- source is not a decision
-                 EdgeSpec(intake, route, verdict),
-                 EdgeSpec(route, escalate, verdict, when=Urgent),
-                 EdgeSpec(route, research, verdict, when=Routine),
-                 EdgeSpec(escalate, report, handled),
-                 EdgeSpec(research, report, handled),
-                 EdgeSpec(report, END, report_out))
+        edges = (EdgeSpec(source=START, target=intake, carries=complaint, when=Urgent),   # <- source is not a decision
+                 EdgeSpec(source=intake, target=route, carries=verdict),
+                 EdgeSpec(source=route, target=escalate, carries=verdict, when=Urgent),
+                 EdgeSpec(source=route, target=research, carries=verdict, when=Routine),
+                 EdgeSpec(source=escalate, target=report, carries=handled),
+                 EdgeSpec(source=research, target=report, carries=handled),
+                 EdgeSpec(source=report, target=END, carries=report_out))
 
     for finding in StrayWhen().check(careful):
         print(f"  {finding[:118]}...")

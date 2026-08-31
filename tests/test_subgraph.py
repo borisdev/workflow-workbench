@@ -50,8 +50,8 @@ class Parent(GraphSpec):
     state_type, deps_type = State, Deps
     input_type, output_type = str, str
     nodes = (transform,)
-    edges = (EdgeSpec(START, transform, text),
-             EdgeSpec(transform, END, text))
+    edges = (EdgeSpec(source=START, target=transform, carries=text),
+             EdgeSpec(source=transform, target=END, carries=text))
 
 
 async def direct(ctx) -> str:
@@ -70,9 +70,9 @@ class Child(GraphSpec):
     state_type, deps_type = State, Deps
     input_type, output_type = str, str
     nodes = (first, second)
-    edges = (EdgeSpec(START, first, text),
-             EdgeSpec(first, second, text),
-             EdgeSpec(second, END, text))
+    edges = (EdgeSpec(source=START, target=first, carries=text),
+             EdgeSpec(source=first, target=second, carries=text),
+             EdgeSpec(source=second, target=END, carries=text))
 
 
 async def child_first(ctx) -> str:
@@ -156,7 +156,7 @@ def test_subgraph_input_mismatch_is_rejected() -> None:
         state_type, deps_type = State, Deps
         input_type, output_type = int, str
         nodes = (other,)
-        edges = (EdgeSpec(START, other, number), EdgeSpec(other, END, text))
+        edges = (EdgeSpec(source=START, target=other, carries=number), EdgeSpec(source=other, target=END, carries=text))
 
     async def run(ctx) -> str:
         return str(ctx.inputs)
@@ -176,7 +176,7 @@ def test_subgraph_output_mismatch_is_rejected() -> None:
         state_type, deps_type = State, Deps
         input_type, output_type = str, int
         nodes = (other,)
-        edges = (EdgeSpec(START, other, text), EdgeSpec(other, END, number))
+        edges = (EdgeSpec(source=START, target=other, carries=text), EdgeSpec(source=other, target=END, carries=number))
 
     async def run(ctx) -> int:
         return len(ctx.inputs)
@@ -243,7 +243,7 @@ class StartEndParent(GraphSpec):
     state_type, deps_type = State, Deps
     input_type, output_type = str, str
     nodes = (passthrough,)
-    edges = (EdgeSpec(START, passthrough, text), EdgeSpec(passthrough, END, text))
+    edges = (EdgeSpec(source=START, target=passthrough, carries=text), EdgeSpec(source=passthrough, target=END, carries=text))
 
 
 def test_a_node_wired_to_the_sentinels_is_checked_like_any_other() -> None:
@@ -277,7 +277,7 @@ def test_a_node_that_declares_nothing_is_now_refused() -> None:
         state_type, deps_type = State, Deps
         input_type, output_type = str, str
         nodes = (silent,)
-        edges = (EdgeSpec(START, silent, text), EdgeSpec(silent, END, text))
+        edges = (EdgeSpec(source=START, target=silent, carries=text), EdgeSpec(source=silent, target=END, carries=text))
 
     async def anything(ctx) -> str:
         return ctx.inputs
@@ -301,7 +301,7 @@ def test_a_subgraph_boundary_is_checked_against_the_declared_variables() -> None
         state_type, deps_type = State, Deps
         input_type, output_type = int, int
         nodes = (other,)
-        edges = (EdgeSpec(START, other, number), EdgeSpec(other, END, number))
+        edges = (EdgeSpec(source=START, target=other, carries=number), EdgeSpec(source=other, target=END, carries=number))
 
     strategy = StrategySpec("sub", {other: SubgraphBinding(Child(), child_strategy)})
     with pytest.raises(SpecError, match="input_type"):
@@ -317,9 +317,9 @@ class MidParent(GraphSpec):
     state_type, deps_type = State, Deps
     input_type, output_type = str, str
     nodes = (mid_first, mid_second)
-    edges = (EdgeSpec(START, mid_first, text),
-             EdgeSpec(mid_first, mid_second, text),
-             EdgeSpec(mid_second, END, text))
+    edges = (EdgeSpec(source=START, target=mid_first, carries=text),
+             EdgeSpec(source=mid_first, target=mid_second, carries=text),
+             EdgeSpec(source=mid_second, target=END, carries=text))
 
 
 def test_a_mid_chain_subgraph_boundary_is_checked_from_the_declaration() -> None:
@@ -351,7 +351,7 @@ class MultiPortParent(GraphSpec):
     state_type, deps_type = State, Deps
     input_type, output_type = str, str
     nodes = (two_in,)
-    edges = (EdgeSpec(START, two_in, text), EdgeSpec(two_in, END, text))
+    edges = (EdgeSpec(source=START, target=two_in, carries=text), EdgeSpec(source=two_in, target=END, carries=text))
 
 
 def test_a_multi_port_node_is_rejected_rather_than_guessed() -> None:
@@ -438,11 +438,11 @@ class FanIn(GraphSpec):
     state_type, deps_type = State, Deps
     input_type, output_type = str, str
     nodes = (split_a, split_b, merge)
-    edges = (EdgeSpec(START, split_a, text),
-             EdgeSpec(START, split_b, text),
-             EdgeSpec(split_a, merge, left),
-             EdgeSpec(split_b, merge, right),
-             EdgeSpec(merge, END, text))
+    edges = (EdgeSpec(source=START, target=split_a, carries=text),
+             EdgeSpec(source=START, target=split_b, carries=text),
+             EdgeSpec(source=split_a, target=merge, carries=left),
+             EdgeSpec(source=split_b, target=merge, carries=right),
+             EdgeSpec(source=merge, target=END, carries=text))
 
 
 def test_a_node_that_cannot_receive_both_its_inputs_is_refused() -> None:
@@ -520,13 +520,13 @@ def test_a_retry_loop_is_not_reported_as_a_fan_in() -> None:
         input_type, output_type = str, str
         nodes = (propose, judge, unwrap, finish)
         decisions = (route,)
-        edges = (EdgeSpec(START, propose, seed),
-                 EdgeSpec(propose, judge, draft),
-                 EdgeSpec(judge, route, verdict),
-                 EdgeSpec(route, unwrap, verdict, when=Again),
-                 EdgeSpec(route, finish, verdict, when=Good),
-                 EdgeSpec(unwrap, propose, seed),          # the back edge
-                 EdgeSpec(finish, END, out_v))
+        edges = (EdgeSpec(source=START, target=propose, carries=seed),
+                 EdgeSpec(source=propose, target=judge, carries=draft),
+                 EdgeSpec(source=judge, target=route, carries=verdict),
+                 EdgeSpec(source=route, target=unwrap, carries=verdict, when=Again),
+                 EdgeSpec(source=route, target=finish, carries=verdict, when=Good),
+                 EdgeSpec(source=unwrap, target=propose, carries=seed),          # the back edge
+                 EdgeSpec(source=finish, target=END, carries=out_v))
 
     async def do_propose(ctx) -> str:
         ctx.state.n += 1
@@ -567,10 +567,10 @@ def test_a_real_fan_in_is_still_caught_next_to_a_loop() -> None:
         name = "real_fan_in"
         input_type, output_type = str, str
         nodes = (one, two, sink)
-        edges = (EdgeSpec(START, one, text),
-                 EdgeSpec(START, two, text),
-                 EdgeSpec(one, sink, a_var),
-                 EdgeSpec(two, sink, a_var),
-                 EdgeSpec(sink, END, text))
+        edges = (EdgeSpec(source=START, target=one, carries=text),
+                 EdgeSpec(source=START, target=two, carries=text),
+                 EdgeSpec(source=one, target=sink, carries=a_var),
+                 EdgeSpec(source=two, target=sink, carries=a_var),
+                 EdgeSpec(source=sink, target=END, carries=text))
 
     assert any("invoked once PER EDGE" in f for f in RealFanIn().check()), RealFanIn().check()

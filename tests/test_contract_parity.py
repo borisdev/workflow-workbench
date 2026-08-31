@@ -57,7 +57,7 @@ def test_the_real_producer_emits_something_the_schema_accepts():
         name = "s"
         input_type = output_type = str
         nodes = (a,)
-        edges = (EdgeSpec(START, a, v), EdgeSpec(a, END, v))
+        edges = (EdgeSpec(source=START, target=a, carries=v), EdgeSpec(source=a, target=END, carries=v))
 
     async def impl(ctx) -> str:
         return ctx.inputs
