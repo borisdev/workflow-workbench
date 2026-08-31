@@ -81,8 +81,23 @@ class ResolvedCase:
 
 @dataclass(frozen=True)
 class Evidence:
+    """One citation. ``sentence`` is None when the SOURCE CANNOT SUPPLY ONE.
+
+    ⚠️ None is not "we did not look" and it is not an empty string to be filled in later by
+    something convenient. MEDLINE-KG stores ``(predication_id, pmid, predicate, negated,
+    subject_cui, object_cui)`` and nothing else — the 1.8 GB of names and sentences was
+    deliberately stripped (`.claude/rules/medline-kg.md` rule 2). So a MEDLINE-KG citation is a
+    PMID, full stop.
+
+    The tempting fix is to fetch that PMID's TITLE and show it as the quote. A title is what the
+    paper is ABOUT; a SemRep sentence is the span the relation was extracted FROM. Substituting
+    one for the other renders an unearned claim in quotation marks, which is precisely the failure
+    this product exists to catch. Leave it None and let the projection say so.
+    """
+
     pmid: str
-    sentence: str
+    sentence: str | None
+    provenance: str = "fixture"
 
 
 @dataclass(frozen=True)
