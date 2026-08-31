@@ -171,15 +171,7 @@ not match, and reachability was reported unchecked for the whole design.
 
 So if you need a predicate branch or the `BaseNode` API: **`render()` hands you a
 real `pydantic_graph.Graph` — take it and use their API directly.** A workbench that can express
-everything is the engine with extra steps. Everything not declarable runs *only*
-through `build_pydantic_structure()`.
-
-⛔ That used to be the end of the story, and it was the expensive part: an override made `edges`
-decorative and reported reachability as `NOT CHECKED` for the **whole design**. Since
-`built.check_built_topology`, `render()` walks the **built** graph — so an override now costs only
-the ability to check *before the implementations exist*, and the `edges` declaration became a
-claim that is verified against what was actually compiled. A hand-wired design that skips,
-reorders or drops a declared node is refused.
+everything is the engine with extra steps.
 
 ⛔ **The matrix is checked against the real API, not maintained by hand.** An earlier version was
 written from a grep and missed five entries — `stream`, `node`, `match_node`, `add_mapping_edge`,

@@ -125,7 +125,18 @@ def test_the_readme_uses_the_current_api() -> None:
     it goes red on the next rename without anyone remembering to look.
     """
     readme = (ROOT / "README.md").read_text()
-    body = readme.split("⛔ This used to be a second table")[0]      # skip the note ABOUT staleness
+
+    # ⛔ THIS LINT HAD A BLIND SPOT AND IT LET THE EXACT BUG THROUGH. It used to read only
+    # `readme.split("⛔ This used to be a second table")[0]` — meant to skip one sentence that
+    # NAMES a retired token while explaining the staleness, but that split lands at line 162 of
+    # 485, so two thirds of the file went unchecked. Sitting just past the cutoff was a paragraph
+    # saying "everything not declarable runs only through build_pydantic_structure()", directly
+    # contradicting the "there is no escape hatch" claim five lines above it.
+    #
+    # Now the whole file is checked and only the lines that TALK ABOUT a retirement are skipped —
+    # narrow the exception, never the scope.
+    body = "\n".join(line for line in readme.splitlines()
+                     if "used to" not in line and "was deleted" not in line)
 
     retired = {
         "map_over=": "renamed — a fan-out is MapEdgeSpec(carries=…, delivers=…)",
