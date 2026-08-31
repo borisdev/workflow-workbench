@@ -30,6 +30,12 @@ class Feature:
 
     api: str
     status: str          # "yes" | "partial" | "refused" | "cannot" | "plumbing"
+    #: ⚠️ `status` is per FEATURE, and "yes" means the feature is reachable — NOT that every
+    #: parameter of it is. Twice now that has read as more than it says: `map` yes + `transform`
+    #: yes does not mean both on one edge, and `join` yes does not include `parent_fork_id` /
+    #: `preferred_parent_fork`. Each is written into the row's note. If a third turns up, the
+    #: table shape is wrong and should carry per-parameter coverage rather than per-method.
+    #:
     #: ⚠️ `status` is per FEATURE, and a feature-by-feature table cannot express COMPOSITION.
     #: `map` is yes and `transform` is yes, and `.map().transform(f).to(b)` on one edge is still
     #: not expressible here — their Path is an ordered list of markers, ours is a typed edge.
@@ -62,7 +68,11 @@ FEATURES: tuple[Feature, ...] = (
         '                   inputs=(number,), outputs=(total,))\n'
         'class Design(GraphSpec):\n    joins = (collect,)',
         "In `joins`, not `nodes`: a reducer is `(current, input) -> current`, so there is no "
-        "implementation for a strategy to bind.",
+        "implementation for a strategy to bind. ⚠️ `parent_fork_id` and `preferred_parent_fork` "
+        "are NOT exposed. They pick WHICH fork a join closes, which only matters once fan-outs "
+        "nest — measured: map-over-papers then map-over-edges collects one flat list because the "
+        "default is 'farthest'. Asking for 'closest' needs a fork id, and forks are minted by "
+        "the builder and never named in a declaration.",
     ),
     Feature(
         "map / add_mapping_edge", "yes",

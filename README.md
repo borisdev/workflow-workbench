@@ -315,7 +315,7 @@ class Design(GraphSpec):
     joins = (collect,)
 ```
 
-> In `joins`, not `nodes`: a reducer is `(current, input) -> current`, so there is no implementation for a strategy to bind.
+> In `joins`, not `nodes`: a reducer is `(current, input) -> current`, so there is no implementation for a strategy to bind. ⚠️ `parent_fork_id` and `preferred_parent_fork` are NOT exposed. They pick WHICH fork a join closes, which only matters once fan-outs nest — measured: map-over-papers then map-over-edges collects one flat list because the default is 'farthest'. Asking for 'closest' needs a fork id, and forks are minted by the builder and never named in a declaration.
 
 ### `map / add_mapping_edge` — **yes**
 
