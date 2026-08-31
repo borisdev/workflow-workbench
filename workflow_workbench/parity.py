@@ -30,6 +30,10 @@ class Feature:
 
     api: str
     status: str          # "yes" | "partial" | "refused" | "cannot" | "plumbing"
+    #: ⚠️ `status` is per FEATURE, and a feature-by-feature table cannot express COMPOSITION.
+    #: `map` is yes and `transform` is yes, and `.map().transform(f).to(b)` on one edge is still
+    #: not expressible here — their Path is an ordered list of markers, ours is a typed edge.
+    #: Recorded in the notes rather than left for someone to infer a capability we do not have.
     theirs: str
     ours: str
     note: str = ""
@@ -65,7 +69,9 @@ FEATURES: tuple[Feature, ...] = (
         "g.edge_from(g.start_node).map().to(square)",
         "MapEdgeSpec(source=START, target=square, carries=numbers, delivers=number)",
         "`carries` is the collection on the wire, `delivers` the item the target receives. "
-        "Naming both is what keeps both ends checked.",
+        "Naming both is what keeps both ends checked. ⚠️ NOT COMPOSABLE with a transform: theirs "
+        "is a list of markers on one edge, so `.map().transform(f).to(b)` fans out AND reshapes "
+        "each item; ours are separate types and no edge is both. Measured, not assumed.",
     ),
     Feature(
         "decision", "yes",

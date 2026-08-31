@@ -331,7 +331,7 @@ Workflow Workbench:
 MapEdgeSpec(source=START, target=square, carries=numbers, delivers=number)
 ```
 
-> `carries` is the collection on the wire, `delivers` the item the target receives. Naming both is what keeps both ends checked.
+> `carries` is the collection on the wire, `delivers` the item the target receives. Naming both is what keeps both ends checked. ⚠️ NOT COMPOSABLE with a transform: theirs is a list of markers on one edge, so `.map().transform(f).to(b)` fans out AND reshapes each item; ours are separate types and no edge is both. Measured, not assumed.
 
 ### `decision` — **yes**
 
