@@ -104,14 +104,14 @@ FEATURES: tuple[Feature, ...] = (
     Feature(
         "broadcast", "yes",
         "g.edge_from(a).broadcast(lambda eb: [eb.to(x), eb.to(y)])",
-        "EdgeSpec(source=a, target=x, carries=v)\nEdgeSpec(a, y, v)      # two edges from one source",
+        "EdgeSpec(source=a, target=x, carries=v)\nEdgeSpec(source=a, target=y, carries=v)   # two edges from one source",
         "MEASURED equivalent: same topology, same answer. Only the generated fork node's name "
         "differs. No vocabulary was added for it.",
     ),
     Feature(
         "edge_from(*sources) / to(a, b)", "yes",
         "g.edge_from(a, b).to(sink)",
-        "EdgeSpec(source=a, target=sink, carries=v)\nEdgeSpec(b, sink, v)",
+        "EdgeSpec(source=a, target=sink, carries=v)\nEdgeSpec(source=b, target=sink, carries=v)",
         "MEASURED byte-identical. ⚠️ But two producers into one STEP is a real defect — the step "
         "runs once per edge and one result is discarded. Use a JoinSpec; `check_step_arity` "
         "refuses the other shape.",

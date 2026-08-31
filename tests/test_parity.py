@@ -110,3 +110,38 @@ def test_the_probe_reads_parity_rather_than_keeping_its_own_copy() -> None:
     probe = (ROOT / "docs" / "probe_builder_features.py").read_text()
     assert "from workflow_workbench.parity import FEATURES" in probe
     assert "MATRIX: dict" not in probe, "the probe grew a second table again"
+
+
+def test_the_readme_uses_the_current_api() -> None:
+    """⛔ The README's own code stopped running and nothing said so.
+
+    `EdgeSpec(START, increment)` sat in the opening example after `carries` became required and
+    the edge specs became keyword-only — so the first thing a reader copies was a `TypeError`,
+    twice over. The generated appendix beside it was correct the whole time, which is the tell:
+    derived text survived, hand-written text rotted.
+
+    This is the cheap lint that would have caught it. Not a substitute for the snippets being
+    lifted from tested files — which is now how the opening example and rung 1 are written — but
+    it goes red on the next rename without anyone remembering to look.
+    """
+    readme = (ROOT / "README.md").read_text()
+    body = readme.split("⛔ This used to be a second table")[0]      # skip the note ABOUT staleness
+
+    retired = {
+        "map_over=": "renamed — a fan-out is MapEdgeSpec(carries=…, delivers=…)",
+        "produces=": "renamed to `delivers`",
+        "build_pydantic_structure": "deleted; there is no wiring hook",
+        "check_built_topology": "deleted with the hook it policed",
+    }
+    for token, why in retired.items():
+        assert token not in body, f"README still shows `{token}` — {why}"
+
+
+def test_the_readme_never_calls_an_edge_positionally() -> None:
+    """Edge fields are keyword-only. A positional example is a `TypeError` a reader would copy."""
+    import re
+
+    readme = (ROOT / "README.md").read_text()
+    # `EdgeSpec(` (or a subclass) whose first argument is not a keyword
+    bad = re.findall(r"\b(?:Map|Transform)?EdgeSpec\(\s*(?!source=|\s*$)[A-Za-z_]", readme)
+    assert not bad, f"{len(bad)} positional edge call(s) in the README; every field is keyword-only"

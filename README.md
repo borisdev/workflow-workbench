@@ -11,13 +11,19 @@ wrote.** Nothing here edits a graph — the view is read-only, by construction. 
 design, the checks, the visualization, the strategy comparison and the eval battles in one place.
 
 ```python
+seed  = VariableSpec("seed", int)
+count = VariableSpec("count", int)
+
+increment = NodeSpec("increment", inputs=(seed,),  outputs=(count,))
+double_it = NodeSpec("double_it", inputs=(count,), outputs=(count,))
+
 class Counter(GraphSpec):
     name = "counter"
     state_type, input_type, output_type = CounterState, int, int
     nodes = (increment, double_it)
-    edges = (EdgeSpec(START, increment),
-             EdgeSpec(increment, double_it, count),
-             EdgeSpec(double_it, END, count))
+    edges = (EdgeSpec(source=START,     target=increment, carries=seed),
+             EdgeSpec(source=increment, target=double_it, carries=count),
+             EdgeSpec(source=double_it, target=END,       carries=count))
 
 modest     = StrategySpec("modest",     {increment: add_one,  double_it: times_two})
 aggressive = StrategySpec("aggressive", {increment: add_ten,  double_it: times_three})
@@ -26,6 +32,10 @@ Counter().check()                        # no strategy, no implementations, no e
 graph = Counter().render(modest)         # a real pydantic_graph.Graph
 eval_battle(Counter(), modest, aggressive, dataset)
 ```
+
+Every field of an edge is keyword-only, and `carries` is required — four slots that look
+interchangeable is one transposition away from a graph that is wrong and still runs. The whole
+file is [`examples/counter.py`](examples/counter.py), and it is executed by the test suite.
 
 ## The ladder — start with what you already have
 
@@ -57,10 +67,11 @@ g.add(g.edge_from(g.start_node).to(pick),
 The same thing declared, on rung 1. The topology stops being calls and becomes data:
 
 ```python
+name_in    = VariableSpec("name_in", str)
 salutation = VariableSpec("salutation", str)
 greeting   = VariableSpec("greeting", str)
 
-pick    = NodeSpec("pick", outputs=(salutation,))
+pick    = NodeSpec("pick",    inputs=(name_in,),    outputs=(salutation,))
 compose = NodeSpec("compose", inputs=(salutation,), outputs=(greeting,))
 
 class HelloWorld(GraphSpec):
@@ -68,9 +79,9 @@ class HelloWorld(GraphSpec):
     state_type = Guest
     input_type, output_type = str, str
     nodes = (pick, compose)
-    edges = (EdgeSpec(START, pick),
-             EdgeSpec(pick, compose, salutation),
-             EdgeSpec(compose, END, greeting))
+    edges = (EdgeSpec(source=START,   target=pick,    carries=name_in),
+             EdgeSpec(source=pick,    target=compose, carries=salutation),
+             EdgeSpec(source=compose, target=END,     carries=greeting))
 ```
 
 Both print `'Hello, Ada!'` and both have the node ids `pick`, `compose`. **On this rung that is a
@@ -141,26 +152,17 @@ before being compared.
 
 ## What the declaration can express — enumerated, not remembered
 
-`docs/probe_builder_features.py` runs every `GraphBuilder` feature and then asks which a
-`GraphSpec` can declare as DATA, which is the only form `check()` and `diagram()` can read.
-
 `docs/probe_builder_features.py` runs every `GraphBuilder` feature, then asks which a `GraphSpec`
 can declare as DATA — the only form `check()` and `diagram()` can read.
 
-| `GraphBuilder` | declarable | as |
-|---|---|---|
-| `step` | **yes** | `NodeSpec` |
-| `join` | **yes** | `JoinSpec` in `joins` |
-| `decision` | **yes** | `DecisionSpec` in `decisions` |
-| `stream` | **yes** | `NodeSpec(streams=True)`, items fanned out by `map_over` |
-| `map` / `add_mapping_edge` | **yes** | `EdgeSpec(..., map_over=item)` |
-| `broadcast`, `edge_from(*sources)`, multi-destination `to` | **yes** | several `EdgeSpec`s from or into one node — *measured* equivalent |
-| `add` / `add_edge` / `label` | **yes** | `EdgeSpec` |
-| `match` | partial | the type form is `when=T`. The `matches=` **predicate** form is deliberately not — return a discriminating type from a step instead |
-| `transform` | **yes** | `TransformEdgeSpec` — a reshape on the wire, emitting no node |
-| `node` / `match_node` | no | a `BaseNode` returns its own successor, so its topology cannot be declared |
+**10 fully declarable, 1 partial, 1 that cannot be.** The row-by-row version — every feature with
+their code beside ours — is the [appendix](#appendix-every-pydantic-graph-builder-feature-theirs-beside-ours)
+at the foot of this file, generated from `workflow_workbench/parity.py`.
 
-**10 fully declarable, 1 partial, 2 not.**
+⛔ This used to be a second table, written by hand, and it went stale the moment `map_over` became
+`MapEdgeSpec` — while the generated one below stayed correct. Two descriptions of one thing is the
+drift `.claude/rules/spec-as-code.md` exists to prevent, and it caught this repo twice: once when
+the probe kept its own copy, once here.
 
 ⛔ **And there is no escape hatch.** `edges` is the only way a graph gets wired — no override, no
 hook. There used to be one, and it was the single thing that could make a built graph disagree
@@ -397,7 +399,7 @@ Workflow Workbench:
 
 ```python
 EdgeSpec(source=a, target=x, carries=v)
-EdgeSpec(a, y, v)      # two edges from one source
+EdgeSpec(source=a, target=y, carries=v)   # two edges from one source
 ```
 
 > MEASURED equivalent: same topology, same answer. Only the generated fork node's name differs. No vocabulary was added for it.
@@ -414,7 +416,7 @@ Workflow Workbench:
 
 ```python
 EdgeSpec(source=a, target=sink, carries=v)
-EdgeSpec(b, sink, v)
+EdgeSpec(source=b, target=sink, carries=v)
 ```
 
 > MEASURED byte-identical. ⚠️ But two producers into one STEP is a real defect — the step runs once per edge and one result is discarded. Use a JoinSpec; `check_step_arity` refuses the other shape.
