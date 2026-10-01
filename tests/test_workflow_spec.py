@@ -17,7 +17,12 @@ from workflow_workbench import (
     SpecError,
     StrategySpec,
     VariableSpec,
+    CoherenceFinding,
+    DecisionSpec,
+    NOT_CHECKED,
+    blocking,
     check_bindings,
+    check_decisions,
     check_implementations,
     check_names,
     check_reachable,
@@ -191,7 +196,7 @@ def test_varies_names_only_what_differs():
 
 
 def test_check_with_no_strategy_needs_no_implementations():
-    assert Linear().check() == []
+    assert Linear().coherence_check() == []
 
 
 # ── there is exactly one way to wire a graph ────────────────────────────────────────────────
@@ -214,7 +219,7 @@ def test_there_is_no_wiring_hook_to_override():
         def build_pydantic_structure(self, g, nodes):    # noqa: ARG002 — deliberately ignored
             raise AssertionError("this must never be called")
 
-    assert TriesToOverride().check(arm_a) == []
+    assert TriesToOverride().coherence_check(arm_a) == []
     assert TriesToOverride().render(arm_a).run_sync(inputs="hi") == "A:HI"
 
 
@@ -268,3 +273,191 @@ def test_a_plain_edge_cannot_deliver_something_else():
     mechanism to convert, so declaring a different arrival would be a claim it cannot honour."""
     with pytest.raises(SpecError, match="cannot deliver something other than it carries"):
         EdgeSpec(source=load, target=parse, carries=text, delivers=VariableSpec("other", int))
+
+
+# ── CoherenceFinding ────────────────────────────────────────────────────────────────────────
+#
+# ⚠️ The 221 tests above are a real oracle for the MESSAGES — they assert substrings, so a
+# reworded finding fails loudly. They cannot say anything about `check` and `about`, which are
+# new and which nothing else would notice being wrong. That is what this section is for.
+
+def test_a_finding_is_still_a_string_everywhere_it_was_one():
+    """⛔ THE COMPATIBILITY ORACLE. This is why the design is a `str` subclass and not a
+    dataclass: ~30 call sites here and in two downstream repos do these five things to a finding
+    and none of them was edited. If this test fails, the subclass stopped being additive.
+    """
+    msg = "node 'orphan' is unreachable from START — it never runs."
+    f = CoherenceFinding(msg, check="check_reachable", about="orphan")
+
+    assert f == msg and str(f) == msg          # value equality, byte-for-byte text
+    assert "unreachable" in f                  # substring containment
+    assert not f.startswith(NOT_CHECKED)       # the prefix match, still the same answer
+    assert "\n  ".join([f, f]) == f"{msg}\n  {msg}"
+    assert hash(f) == hash(msg) and {f} == {msg}
+    assert repr([f]) == repr([msg]), "repr must not move — examples print whole lists of these"
+    assert isinstance(f, str)
+
+
+def test_blocking_is_derived_and_not_checked_is_the_only_non_blocking_kind():
+    assert CoherenceFinding("anything at all", check="c").blocking
+    assert not CoherenceFinding(f"{NOT_CHECKED} — we could not look", check="c").blocking
+    # A stated gap and a clean pass must not read the same — `.claude/rules/checks.md`.
+    assert blocking([CoherenceFinding(f"{NOT_CHECKED} — x", check="c")]) == []
+
+
+def test_blocking_agrees_with_the_comprehension_it_replaces():
+    """`render()`, `eval_battle` and the devserver all used the same `startswith` comprehension.
+    They call `blocking()` now, so the two must give the identical verdict on the same input —
+    including on a PLAIN string a caller mixed in, which has no `.blocking` to read."""
+    findings = [*Linear().coherence_check(StrategySpec("partial", {load: load_a})),
+                f"{NOT_CHECKED} — a plain string from somewhere else",
+                "a plain string that is a real defect"]
+    assert blocking(findings) == [f for f in findings if not f.startswith(NOT_CHECKED)]
+
+
+def test_every_check_tags_its_findings_with_its_own_name():
+    """`check` must name the function that produced the finding — the whole point is that a
+    caller can branch on it. A typo'd or copy-pasted name is invisible to every other test."""
+    import workflow_workbench.checks as c
+
+    produced = {f.check for f in _every_finding_we_can_provoke()}
+    assert produced, "no findings were provoked — the assertions below would pass vacuously"
+    for name in produced:
+        if name == "GraphSpec._coherence_check":
+            continue        # cycle detection needs `ancestry`; it has no `check_*` function
+        assert callable(getattr(c, name, None)), f"`check={name!r}` names no function in checks"
+
+
+def test_about_names_something_the_caller_can_look_up():
+    """⛔ THE `about` ORACLE, and the reason it is structural rather than a list of expected
+    strings: a hand-written table of 27 answers is as likely to be wrong as the code it checks.
+
+    This asserts the INVARIANT instead — an `about` is empty, or it is a name the caller can
+    resolve against the design it just handed in. An `about` that names nothing is worse than an
+    empty one, because it reads as a handle and is not.
+    """
+    spec = _Broken()
+    resolvable = {n.name for n in (*spec.nodes, *spec.joins, *spec.decisions)}
+    resolvable |= {"START", "END", _broken_arm.name}
+
+    findings = spec.coherence_check(_broken_arm)
+    assert len(findings) > 5, f"only {len(findings)} findings — not enough to be a real sweep"
+    for f in findings:
+        if not f.about:
+            continue                                   # a whole-design finding, stated as such
+        for part in f.about.split("->"):
+            assert part in resolvable, f"`about={f.about!r}` names {part!r}, which is not in {spec.name}"
+
+
+def test_about_follows_the_subject_of_the_sentence_not_the_loop_variable():
+    """The two cases where the obvious answer is the wrong one.
+
+    An undeclared node cannot be looked up — so that finding is about the EDGE that references
+    it. And a decision's branch missing a `when=` is about that one branch, not about the
+    decision: a caller filtering on the decision name would be handed a finding it cannot act on
+    at the granularity it asked for.
+    """
+    ghost = StepSpec("ghost")
+    edges = (*Linear.edges, EdgeSpec(source=parse, target=ghost, carries=text))
+    undeclared = [f for f in check_reachable((load, parse), edges) if "not in `nodes`" in f]
+    assert [f.about for f in undeclared] == ["parse->ghost"], "named the ghost, not the edge"
+
+    route = DecisionSpec("route")
+    branch = EdgeSpec(source=route, target=parse, carries=text)      # no `when=`
+    no_when = [f for f in check_decisions((route,), (branch,)) if "without a `when=`" in f]
+    assert [f.about for f in no_when] == ["route->parse"]
+
+
+def test_about_is_the_node_for_a_node_finding_and_the_edge_for_an_edge_finding():
+    """One assertion per check that can produce a finding from a two-node design, because a
+    plausible-looking `about` on the wrong axis is exactly what nothing else here would see."""
+    dup = StepSpec("load", (text,), (text,))
+    assert [f.about for f in check_names((load, dup))] == ["load"]
+
+    orphan = StepSpec("orphan")
+    unreachable = [f for f in check_reachable((load, parse, orphan), Linear.edges)
+                   if "unreachable" in f]
+    assert [f.about for f in unreachable] == ["orphan"]
+
+    wrong = EdgeSpec(source=load, target=parse, carries=other)
+    assert [f.about for f in check_variables((load, parse), (wrong,))] == \
+        ["load->parse", "load->parse"]           # neither end declares it: source AND target
+
+    partial = StrategySpec("partial", {load: load_a})
+    assert [f.about for f in check_bindings(Linear.nodes, partial)] == ["parse"]
+
+    async def two_args(ctx, extra) -> str:
+        return ""
+    assert [f.about for f in check_implementations(StrategySpec("bad", {load: two_args}))] \
+        == ["load"]
+
+
+def test_a_whole_design_finding_says_so_with_an_empty_about():
+    """⚠️ `""` is a VALUE here, not a missing one. "no edge leaves START" is about the design;
+    inventing a node name for it would make a filter on that node return a finding it did not
+    cause."""
+    stranded = StepSpec("stranded")
+    assert [f.about for f in check_reachable((stranded,), ())] == ["", ""]   # no START, no END
+
+
+def test_every_append_site_is_tagged_even_the_ones_no_test_provokes():
+    """⛔ THE RATCHET, and it is deliberately a source scan rather than a dynamic sweep.
+
+    `test_every_check_tags_its_findings_with_its_own_name` is the stronger test — it reads real
+    `check` values off real findings — but it can only cover branches something provokes. A
+    `findings.append("...")` on a rare branch would return a plain `str`, and the FIRST caller to
+    read `.check` off it gets an `AttributeError` in production rather than a red test here.
+
+    So this one asserts the shape of every append site, including the ones nothing reaches.
+    """
+    import inspect
+
+    import workflow_workbench.checks as c
+
+    src = inspect.getsource(c)
+    assert src.count("findings.append(") > 20, "checks.py read as empty or tiny — vacuous"
+    assert src.count("findings.append(") == src.count("findings.append(CoherenceFinding("), \
+        "a findings.append() in checks.py does not build a CoherenceFinding"
+
+
+# ── the broken design these sweep over ──────────────────────────────────────────────────────
+#
+# One design that trips as many checks at once as possible. Deliberately NOT a list of expected
+# messages: it exists so the structural assertions above run over real output from most of the
+# check surface rather than over one hand-picked finding.
+
+_a, _b = VariableSpec("a", str), VariableSpec("b", int)
+_split = StepSpec("split", outputs=(_a, _b))
+_merge = StepSpec("merge", inputs=(_a, _b), outputs=(_a,))          # two inputs: not a step
+_lost = StepSpec("lost", inputs=(_a,))                               # cannot reach END
+_route = DecisionSpec("route")                                       # no branches
+
+
+class _Broken(GraphSpec):
+    name = "broken"
+    input_type, output_type = str, str
+    nodes = (_split, _merge, _lost)
+    decisions = (_route,)
+    edges = (EdgeSpec(source=START, target=_split, carries=_a),
+             EdgeSpec(source=_split, target=_merge, carries=_a),
+             EdgeSpec(source=_split, target=_merge, carries=_b),     # fan-in onto a step
+             EdgeSpec(source=_split, target=_lost, carries=_a),
+             EdgeSpec(source=_merge, target=END, carries=_a))
+
+
+async def _untyped(ctx):                                             # no return annotation
+    return ""
+
+
+_broken_arm = StrategySpec("broken_arm", {_split: _untyped, _merge: _untyped, _lost: _untyped})
+
+
+def _every_finding_we_can_provoke():
+    """Findings from across the check surface — the broken design, plus the cases its shape
+    cannot reach."""
+    out = list(_Broken().coherence_check(_broken_arm))
+    out += check_names((load, StepSpec("load", (text,), (text,))))
+    out += check_implementations(StrategySpec("x", {load: "nope"}))
+    out += check_reachable((StepSpec("stranded"),), ())
+    out += check_decisions((_route,), (EdgeSpec(source=_route, target=parse, carries=text),))
+    return out

@@ -63,7 +63,7 @@ def test_a_fixed_transform_runs_and_creates_no_node() -> None:
     reader would count it as a stage of the workflow. It is not one — it is an accessor.
     """
     spec = Fixed()
-    assert spec.check(fixed_s) == []
+    assert spec.coherence_check(fixed_s) == []
 
     graph = spec.render(fixed_s)
     assert graph.run_sync(inputs="x") == "2 edges cited"
@@ -111,7 +111,7 @@ def test_two_arms_can_reshape_differently_and_varies_says_so() -> None:
     """⛔ The reason this is bindable at all. A difference nobody can see is the one that ruins a
     comparison — two arms that pruned differently would otherwise look identical."""
     spec = Varying()
-    assert spec.check(arm_all) == []
+    assert spec.coherence_check(arm_all) == []
 
     assert spec.render(arm_all).run_sync(inputs="x") == "2 edges cited"
     assert spec.render(arm_first).run_sync(inputs="x") == "1 edges cited"
@@ -161,7 +161,7 @@ def test_the_target_is_checked_against_produces_not_against_the_wire() -> None:
         name = "mismatched"
         edges = (EdgeSpec(source=START, target=propose, carries=plan), bad_edge, EdgeSpec(source=cite, target=END, carries=report))
 
-    findings = Mismatched().check(fixed_s)
+    findings = Mismatched().coherence_check(fixed_s)
     assert any("reshaped on the wire" in f and "wrong" in f for f in findings), findings
 
 
@@ -187,3 +187,31 @@ def test_fan_out_and_reshape_are_separate_types() -> None:
     assert not issubclass(TransformEdgeSpec, MapEdgeSpec)
     assert not hasattr(TransformEdgeSpec(source=propose, target=cite, carries=draft, delivers=edge_list, apply=take_edges),
                        "map_over")
+
+
+def test_a_transform_finding_is_about_the_WIRE_it_sits_on() -> None:
+    """A transform edge has no name of its own, so `about` is its two endpoints.
+
+    ⚠️ The assertion worth having is that TWO different checks hand back the SAME handle for the
+    same wire. `check_bindings` sees an unbound variation point and `check_transform_edges` sees
+    a transform that reshapes nothing — one defect, two checks, and a caller grouping findings by
+    `about` must get one group rather than two.
+    """
+    incomplete = StrategySpec("incomplete", {propose: do_propose, cite: do_cite})
+    findings = Varying().coherence_check(incomplete)
+
+    unbound = [f for f in findings if "no `apply=` and no binding" in f]
+    assert [(f.check, f.about) for f in unbound] == [("check_transform_edges", "propose->cite")]
+
+    not_bound = [f for f in findings if "does not bind" in f]
+    assert [(f.check, f.about) for f in not_bound] == [("check_bindings", "propose->cite")]
+
+
+def test_an_async_transform_finding_is_about_that_wire_too() -> None:
+    async def slow(ctx) -> list:
+        return ctx.inputs.edges
+
+    s = StrategySpec("bad", {propose: do_propose, cite: do_cite, shape: slow})
+    async_findings = [f for f in Varying().coherence_check(s) if "cannot await" in f]
+    assert [(f.check, f.about) for f in async_findings] == \
+        [("check_transform_edges", "propose->cite")]

@@ -49,14 +49,14 @@ class HelloWorld(GraphSpec):
 ```
 
 Both print `'Hello, Ada!'` and both have the node ids `pick`, `compose`. On this rung the
-declaration buys you `check()` and `diagram()` before any implementation exists, and nothing
+declaration buys you `coherence_check()` and `diagram()` before any implementation exists, and nothing
 else — it starts paying on rung 2, when `pick` has two implementations and something has to hold
 them to one shape.
 
 | rung | adds | source |
 |---|---|---|
 | 0 | nothing — Pydantic Graph alone, the control | [`their_hello.py`](../examples/ladder/their_hello.py) |
-| 1 | the design as data; `check()` and `diagram()` with nothing implemented | [`stage1_bare.py`](../examples/ladder/stage1_bare.py) |
+| 1 | the design as data; `coherence_check()` and `diagram()` with nothing implemented | [`stage1_bare.py`](../examples/ladder/stage1_bare.py) |
 | 2 | **two strategies over one design**, with identical node ids | [`stage2_strategies.py`](../examples/ladder/stage2_strategies.py) |
 | 3 | a new node — and a strategy that predates it is refused | [`stage3_new_node.py`](../examples/ladder/stage3_new_node.py) |
 | 4 | one node implemented by a **whole child design** | [`stage4_subgraph.py`](../examples/ladder/stage4_subgraph.py) |

@@ -1,6 +1,6 @@
 # What a `GraphSpec` can express — every Pydantic Graph builder feature, enumerated
 
-`GraphSpec` declares a workflow as DATA, because data is the only form `check()` and `diagram()`
+`GraphSpec` declares a workflow as DATA, because data is the only form `coherence_check()` and `diagram()`
 can read before any implementation exists. That buys the checks and the diagrams, and it costs
 expressiveness: a few things Pydantic Graph lets you write in code cannot be written down.
 

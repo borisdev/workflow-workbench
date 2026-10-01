@@ -265,7 +265,7 @@ def test_a_node_wired_to_the_sentinels_is_checked_like_any_other() -> None:
     graph = StartEndParent().render(strategy)
     assert graph.run_sync(inputs=" hi ", state=state, deps=Deps(prefix="ok:")) == "ok:HI"
     assert state.calls == ["first", "second"]
-    assert StartEndParent().check(strategy) == []
+    assert StartEndParent().coherence_check(strategy) == []
 
 
 def test_a_node_that_declares_nothing_is_now_refused() -> None:
@@ -282,7 +282,7 @@ def test_a_node_that_declares_nothing_is_now_refused() -> None:
     async def anything(ctx) -> str:
         return ctx.inputs
 
-    findings = Silent().check(StrategySpec("s", {silent: anything}))
+    findings = Silent().coherence_check(StrategySpec("s", {silent: anything}))
     assert any("does not declare it as an input" in f for f in findings), findings
 
 
@@ -339,7 +339,7 @@ def test_a_mid_chain_subgraph_boundary_is_checked_from_the_declaration() -> None
     strategy = StrategySpec("sub", {mid_first: one,
                                     mid_second: SubgraphBinding(Child(), child_strategy)})
 
-    assert MidParent().check(strategy) == []
+    assert MidParent().coherence_check(strategy) == []
     MidParent().render(strategy)
 
 
@@ -366,7 +366,7 @@ def test_a_multi_port_node_is_rejected_rather_than_guessed() -> None:
 
 def test_recursive_subgraph_binding_is_rejected() -> None:
     """A design implementing one of its own nodes with itself builds children until the stack
-    ends. Caught in `_check`, which is the single owner of the ancestry path."""
+    ends. Caught in `_coherence_check`, which is the single owner of the ancestry path."""
     bindings: dict = {}
     recursive = StrategySpec("recursive", bindings)
     bindings[transform] = SubgraphBinding(graph=Parent(), strategy=recursive)
@@ -447,7 +447,7 @@ class FanIn(GraphSpec):
 
 def test_a_node_that_cannot_receive_both_its_inputs_is_refused() -> None:
     """⛔ Measured before this check existed: it rendered, ran, called `merge` TWICE with one
-    value each, and returned one result while discarding the other. `check()` said clean.
+    value each, and returned one result while discarding the other. `coherence_check()` said clean.
 
     Every other check passes on it — both variables are declared on both ends, everything
     reaches END. Only arity sees it.
@@ -456,7 +456,7 @@ def test_a_node_that_cannot_receive_both_its_inputs_is_refused() -> None:
         return ctx.inputs
 
     strategy = StrategySpec("s", {split_a: one, split_b: one, merge: one})
-    findings = FanIn().check(strategy)
+    findings = FanIn().coherence_check(strategy)
 
     assert len(findings) == 2, findings
     assert "declares 2 inputs" in findings[0]
@@ -468,8 +468,8 @@ def test_a_node_that_cannot_receive_both_its_inputs_is_refused() -> None:
 
 def test_a_linear_chain_is_not_flagged() -> None:
     """The check must not fire on the ordinary shape, or it is noise nobody reads."""
-    assert Parent().check(direct_strategy) == []
-    assert Child().check(child_strategy) == []
+    assert Parent().coherence_check(direct_strategy) == []
+    assert Child().coherence_check(child_strategy) == []
 
 
 # ── a loop-back is not a fan-in ─────────────────────────────────────────────────────────────
@@ -547,7 +547,7 @@ def test_a_retry_loop_is_not_reported_as_a_fan_in() -> None:
                                   unwrap: do_unwrap, finish: do_finish})
     spec = WithRetry()
 
-    assert spec.check(strategy) == [], "a loop-back was reported as a fan-in"
+    assert spec.coherence_check(strategy) == [], "a loop-back was reported as a fan-in"
 
     log = Log()
     assert spec.render(strategy).run_sync(inputs="a plan", state=log) == "done(draft-3)"
@@ -573,4 +573,45 @@ def test_a_real_fan_in_is_still_caught_next_to_a_loop() -> None:
                  EdgeSpec(source=two, target=sink, carries=a_var),
                  EdgeSpec(source=sink, target=END, carries=text))
 
-    assert any("invoked once PER EDGE" in f for f in RealFanIn().check()), RealFanIn().check()
+    assert any("invoked once PER EDGE" in f for f in RealFanIn().coherence_check()), RealFanIn().coherence_check()
+
+
+def test_a_subgraph_finding_is_about_the_PARENT_node_the_child_is_bound_to() -> None:
+    """The child graph is coherent on its own — `WrongInput` renders and runs. What is wrong is
+    the pairing, and the parent node is the only name that exists in the design the caller
+    handed in. Naming the child's node would point at another design entirely.
+    """
+    other = StepSpec("other", inputs=(number,), outputs=(text,))
+
+    class WrongInput(GraphSpec):
+        name = "wrong_input"
+        state_type, deps_type = State, Deps
+        input_type, output_type = int, str
+        nodes = (other,)
+        edges = (EdgeSpec(source=START, target=other, carries=number),
+                 EdgeSpec(source=other, target=END, carries=text))
+
+    async def run(ctx) -> str:
+        return str(ctx.inputs)
+
+    bad = StrategySpec("bad", {transform: SubgraphBinding(
+        graph=WrongInput(), strategy=StrategySpec("inner", {other: run}))})
+
+    mismatch = [f for f in Parent().coherence_check(bad) if "input_type" in f]
+    assert [(f.check, f.about) for f in mismatch] == [("check_subgraphs", "transform")]
+
+
+def test_a_recursive_binding_is_about_the_STRATEGY_not_the_design() -> None:
+    """⚠️ The one finding produced outside `checks.py` — `GraphSpec._check` owns cycle detection
+    because it is the only thing holding the `ancestry`. It is therefore the one most likely to
+    be left untagged, and nothing else here would notice.
+
+    `about` is the strategy because the design is fine: `Parent` and `Child` are both coherent,
+    and swapping the strategy is the move that fixes it.
+    """
+    loop = StrategySpec("loop", {transform: direct})
+    loop.bindings[transform] = SubgraphBinding(graph=Parent(), strategy=loop)
+
+    recursive = [f for f in Parent().coherence_check(loop) if "recursive subgraph binding" in f]
+    assert recursive, "the cycle was not detected at all"
+    assert all((f.check, f.about) == ("GraphSpec._coherence_check", "loop") for f in recursive)

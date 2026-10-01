@@ -70,8 +70,8 @@ aggressive = StrategySpec("aggressive", {increment: add_ten, double_it: times_th
 def main() -> None:
     spec = Counter()
 
-    findings = spec.check()
-    print(f"check() with no strategy at all: {findings or 'clean'}")
+    findings = spec.coherence_check()
+    print(f"coherence_check() with no strategy at all: {findings or 'clean'}")
 
     for strategy in (modest, aggressive):
         graph = spec.render(strategy)

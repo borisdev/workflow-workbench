@@ -29,7 +29,7 @@ README = (ROOT / "README.md").read_text()
 
 def test_the_specification_checks_clean_with_nothing_implemented() -> None:
     """Stage 2 of the walkthrough, and the thing a built `Graph` cannot reach."""
-    assert Greeting().check() == []
+    assert Greeting().coherence_check() == []
 
 
 def test_both_strategies_satisfy_the_specification() -> None:
@@ -37,7 +37,7 @@ def test_both_strategies_satisfy_the_specification() -> None:
     structural consistency does not imply correct behaviour."""
     spec = Greeting()
     for strategy in (trim_only, normalize_spaces):
-        assert spec.check(strategy) == [], strategy.name
+        assert spec.coherence_check(strategy) == [], strategy.name
 
 
 def test_both_arms_have_the_same_node_ids_so_the_comparison_aligns() -> None:
@@ -72,7 +72,7 @@ def test_an_incomplete_strategy_is_reported_and_then_refused() -> None:
     spec = Greeting()
     unfinished = StrategySpec("unfinished", {normalize: trim_and_collapse})
 
-    findings = spec.check(unfinished)
+    findings = spec.coherence_check(unfinished)
     assert len(findings) == 1 and "'compose'" in findings[0]
 
     with pytest.raises(SpecError) as exc:

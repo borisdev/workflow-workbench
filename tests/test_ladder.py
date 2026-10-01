@@ -42,7 +42,7 @@ def test_rung1_checks_before_anything_is_implemented() -> None:
     """The capability a built Graph cannot have: it cannot exist until every body is written."""
     from examples.ladder.stage1_bare import HelloWorld
 
-    assert HelloWorld().check() == []
+    assert HelloWorld().coherence_check() == []
     assert "flowchart" in HelloWorld().diagram()
 
 
@@ -259,7 +259,7 @@ def test_rung8_a_join_actually_combines_both_arrivals() -> None:
     from examples.ladder.stage8_join import Greetings, Guest, greet
 
     spec = Greetings()
-    assert spec.check(greet) == []
+    assert spec.coherence_check(greet) == []
 
     result = spec.render(greet).run_sync(inputs="Ada", state=Guest())
     assert result == "Hello, Ada! / Yo, Ada!"
@@ -287,7 +287,7 @@ def test_rung8_a_join_is_reachability_checked_which_it_could_not_be_before() -> 
     on every node around it."""
     from examples.ladder.stage8_join import Greetings, greet
 
-    findings = Greetings().check(greet)
+    findings = Greetings().coherence_check(greet)
     assert not any("NOT CHECKED" in f for f in findings), findings
 
 
@@ -296,7 +296,7 @@ def test_rung8_a_join_binds_nothing_and_never_appears_in_varies() -> None:
     from examples.ladder.stage8_join import Greetings, collect, greet
 
     assert collect not in greet.bindings
-    assert Greetings().check(greet) == []
+    assert Greetings().coherence_check(greet) == []
     assert "collect" not in Greetings().varies(greet, greet)
 
 
@@ -322,7 +322,7 @@ def test_rung9_each_branch_routes_and_only_one_fires() -> None:
     from examples.ladder.stage9_decision import Log, Triage, careful
 
     spec = Triage()
-    assert spec.check(careful) == []
+    assert spec.coherence_check(careful) == []
     graph = spec.render(careful)
 
     urgent_log = Log()
@@ -349,7 +349,7 @@ def test_rung9_converging_branches_are_not_a_fan_in() -> None:
     incoming = [e for e in spec.edges if e.target is report]
     assert len(incoming) == 2, "the test's premise is gone; report is no longer a convergence"
 
-    assert spec.check(careful) == [], "a converging branch was reported as a fan-in"
+    assert spec.coherence_check(careful) == [], "a converging branch was reported as a fan-in"
 
     for text in ("chest pain now", "dry elbow"):
         log = Log()
@@ -372,7 +372,7 @@ def test_rung9_a_real_fan_in_is_still_caught_alongside_a_decision() -> None:
                  EdgeSpec(source=intake, target=sneak, carries=verdict),      # NOT behind the decision
                  EdgeSpec(source=sneak, target=report, carries=handled))      # a third, unconditional arrival
 
-    findings = RealFanIn().check()
+    findings = RealFanIn().coherence_check()
     assert any("invoked once PER EDGE" in f for f in findings), findings
 
 
@@ -433,7 +433,7 @@ def test_rung9_reachability_runs_through_branches() -> None:
     design — so every branching workflow was entirely unchecked."""
     from examples.ladder.stage9_decision import Triage, careful
 
-    assert not any("NOT CHECKED" in f for f in Triage().check(careful))
+    assert not any("NOT CHECKED" in f for f in Triage().coherence_check(careful))
 
 
 def test_rung9_the_diagram_labels_branches_by_type_not_variable() -> None:
@@ -494,7 +494,7 @@ def test_rung10_a_retry_loop_and_a_dispatch_in_the_same_design() -> None:
 
     assert out == "audited: draft-2"
     assert [s for s in log.steps if s.startswith("propose")] == ["propose#1", "propose#2"]
-    assert Intake().check(careful) == []
+    assert Intake().coherence_check(careful) == []
 
 
 def test_rung10_two_arms_gate_differently_without_moving_the_topology() -> None:

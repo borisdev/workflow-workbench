@@ -116,7 +116,7 @@ alarmist = StrategySpec("alarmist", {intake: triage_everything_urgent, escalate:
 
 def main() -> None:
     spec = Triage()
-    print(f"check(): {spec.check(careful) or 'clean — including reachability, through branches'}\n")
+    print(f"coherence_check(): {spec.coherence_check(careful) or 'clean — including reachability, through branches'}\n")
 
     graph = spec.render(careful)
     for text in ("chest pain since this morning", "dry skin on my elbow"):
@@ -150,7 +150,7 @@ def main() -> None:
                  EdgeSpec(source=research, target=report, carries=handled),
                  EdgeSpec(source=report, target=END, carries=report_out))
 
-    for finding in NoWhen().check(careful):
+    for finding in NoWhen().coherence_check(careful):
         print(f"  {finding[:118]}...")
 
     class StrayWhen(Triage):
@@ -163,7 +163,7 @@ def main() -> None:
                  EdgeSpec(source=research, target=report, carries=handled),
                  EdgeSpec(source=report, target=END, carries=report_out))
 
-    for finding in StrayWhen().check(careful):
+    for finding in StrayWhen().coherence_check(careful):
         print(f"  {finding[:118]}...")
 
     try:

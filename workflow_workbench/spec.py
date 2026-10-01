@@ -46,8 +46,11 @@ class SpecError(Exception):
 
 
 class _Start:
-    """The graph's entry. A class, not a bare `object()`, so `mypy` can narrow a
-    `NodeSpec | _Start | _End` union — a bare sentinel makes every `edge.source` lookup unprovable."""
+    """The graph's entry.
+
+    ⚠️ First line stands alone, because `reference.py` lifts it into the README's vocabulary
+    table. A class, not a bare `object()`, so `mypy` can narrow a `NodeSpec | _Start | _End`
+    union — a bare sentinel makes every `edge.source` lookup unprovable."""
 
     __slots__ = ()
 
@@ -56,7 +59,9 @@ class _Start:
 
 
 class _End:
-    """The graph's exit. See `_Start`."""
+    """The graph's exit.
+
+    A class for the same reason `_Start` is."""
 
     __slots__ = ()
 

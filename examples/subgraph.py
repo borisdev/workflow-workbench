@@ -139,7 +139,7 @@ def main() -> None:
     deps = ExtractionDeps()
 
     print(f"design checks clean with no strategy at all: "
-          f"{ExtractionWorkflow().check() or 'yes'}")
+          f"{ExtractionWorkflow().coherence_check() or 'yes'}")
 
     # The child stands on its own. If it did not, it would be a fragment, not a design.
     child_state = ExtractionState()
