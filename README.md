@@ -1,13 +1,38 @@
 # workflow-workbench
 
-Workflow Workbench is a high-level wrapper around Pydantic Graph Builder for developing workflows
-with an AI coding agent.
+**Let an AI coding agent build a workflow unsupervised and it produces code that works and is
+incoherent.** Not broken — that you would notice. Incoherent: a fan-out whose results are
+silently dropped, two wires crossed between values of the same type, a stage nobody implemented.
+It runs, it returns something of the right shape, and nothing downstream can tell.
 
-Specify the workflow and its data contracts, inspect its diagram, then have the agent implement
-the steps. Bind alternative implementations as strategies and compare them through simple
-evaluation battles.
+Workflow Workbench is a declaration layer over Pydantic Graph Builder. You write the workflow's
+shape and its data contracts as **data**, before any step exists — which is what makes that class
+of defect findable:
 
-The specification keeps the workflow understandable and gives the agent explicit constraints.
+```python
+spec.coherence_check()      # 11 well-formedness rules, 7 of them with nothing implemented
+spec.diagram()              # a picture of the same declaration
+spec.render(strategy)       # refuses outright if anything blocks
+```
+
+So the agent gets an acceptance test it cannot talk its way past, and you get a drawing of the
+design before you read a line of its code.
+
+Four problems, and the same declaration answers all four:
+
+| | |
+|---|---|
+| **An agent's output works and is incoherent.** Each piece is locally fine; the whole does not add up. | `coherence_check()` — 11 well-formedness rules, 7 needing nothing implemented |
+| **A reasoning strategy cannot be asserted correct — only compared.** There is no right answer to diff against, so "better" is an empirical question. | `eval_battle()` — same cases, same evaluators, plus a replicate arm as the noise floor |
+| **Complexity grows unless pieces are reused.** Two arms that differ in one stage should say so, not be two files. | the data language: declare a role once, bind it many ways; `SubgraphBinding` reuses a whole child design as one node |
+| **You cannot see what you built.** | `diagram()` and `diff_diagram()`, from the declaration alone |
+
+On that last one, honestly: Pydantic Graph **can** emit mermaid — `build_mermaid_graph` in
+`graph_builder.py`. Two differences, not a long list. It takes a BUILT graph's internals, so every
+implementation must exist first; ours reads the declaration, so the picture arrives before the
+code. And ours can draw **two strategies at once**, greying what they share and highlighting what
+differs, which is a question about a comparison rather than about a graph.
+
 Pydantic Graph executes the workflow; Pydantic Evals evaluates its results.
 
 Built on [Pydantic Graph](https://ai.pydantic.dev/graph/) and
@@ -108,6 +133,46 @@ Stages 2 and 5 are what a specification buys, and neither needs a second strateg
 implementation per step still gets a drawing before it is written and a refusal when one is
 missed.
 
+## What `coherence_check()` enforces
+
+<!-- rules:start -->
+**11 rules.** `coherence_check()` returns one finding per violation and an empty list for a clean design; `render()` refuses on any finding that blocks.
+
+**7 need no implementations at all** — runnable the moment `nodes` and `edges` are written.
+
+| check | rule |
+|---|---|
+| `check_names` | Node names must be unique — `render()` uses them as graph node ids. |
+| `check_reachable` | Every node reachable from START, and every node able to reach END. |
+| `check_variables` | Per edge: the variable it carries must be an output of its source and an input of its target. |
+| `check_step_arity` | A step body receives exactly ONE value, so a node cannot consume two inputs at once. |
+| `check_decisions` | `when` appears exactly on the edges leaving a decision, and nowhere else. |
+| `check_transform_edges` | A transform edge is fixed (`apply=`) or a variation point (bound) — exactly one. |
+| `check_fan_out_rejoins` | Everything a fan-out produces must reach a join before it reaches END. |
+
+**4 more once a strategy exists**, checking the implementations against the roles they fill.
+
+| check | rule |
+|---|---|
+| `check_bindings` | The strategy binds exactly the declared VARIATION POINTS — no missing, no extra. |
+| `check_implementations` | Each bound CALLABLE is callable and takes exactly one positional argument (`ctx`). |
+| `check_subgraphs` | Every child design used as a node implementation fits the node it is bound to. |
+| `check_variable_types` | Each implementation returns the type its role is declared to produce. |
+<!-- rules:end -->
+
+Every one of these exists because it caught something that otherwise **ran and returned a
+plausible answer**. Each check's docstring in [`checks.py`](workflow_workbench/checks.py) carries
+the measured case that produced it.
+
+**These are structural checks, not a proof of correctness.** A step that returns its input
+untouched satisfies every rule above and still does nothing — that is the boundary between what a
+specification checks and what an evaluation measures, which is why `eval_battle` exists.
+
+A finding is a `CoherenceFinding`: a `str` subclass, so it reads as the sentence it is, carrying
+`check`, `about` and `blocking` so an agent can branch on structure rather than parse English. A
+`NOT CHECKED — …` finding is a **stated gap**, not a pass, and does not block `render()`.
+
+
 ## The same example, in five stages
 
 ### 1. Declare the nodes, the named values, and the edges
@@ -133,6 +198,53 @@ class Greeting(GraphSpec):
 checker can catch `compose` being wired to the wrong one when there is only one type in the room.
 A name can. Edge fields are keyword-only and `carries` is required — four interchangeable-looking
 slots are one transposition away from a graph that is wrong and runs.
+
+#### The data language
+
+<!-- language:start -->
+A design is **data** — tuples of these, in a class body. Nothing executes, which is what lets `coherence_check()` and `diagram()` read it before a single step is written.
+
+**Values** — What flows. Named, so a mis-wiring is visible when the types are identical.
+
+| | |
+|---|---|
+| `VariableSpec` | A named, typed value that may flow along an edge. |
+
+**Boxes** — Every box the design declares. Only a step takes an implementation.
+
+| | |
+|---|---|
+| `StepSpec` | A semantic role with a typed contract. Deliberately implementation-free. |
+| `JoinSpec` | The one thing that can combine several arrivals into one value. |
+| `DecisionSpec` | A router. Sends the value down one branch, chosen by its TYPE. |
+| `NodeSpec` | `StepSpec` \| `JoinSpec` \| `DecisionSpec` |
+
+**Wires** — How values move. The kind of edge is the kind of movement.
+
+| | |
+|---|---|
+| `EdgeSpec` | One wire: `source -> target`, carrying `carries`. |
+| `MapEdgeSpec` | Fan out: `carries` is a collection, and the target runs ONCE PER `delivers`. |
+| `TransformEdgeSpec` | A cheap SYNCHRONOUS reshape that happens ON THE WIRE, creating no node. |
+
+**Endpoints** — The graph's own boundary, declared like anything else.
+
+| | |
+|---|---|
+| `START` | The graph's entry. |
+| `END` | The graph's exit. |
+
+**The design, and what fills it** — One design, many competing sets of implementations.
+
+| | |
+|---|---|
+| `GraphSpec` | Subclass it, declare `nodes` and `edges`. That is the whole interface. |
+| `StrategySpec` | A complete Bindable -> implementation mapping. One competitor. |
+| `SubgraphBinding` | A whole child design — `GraphSpec` + `StrategySpec` — used as ONE node's implementation. |
+| `Bindable` | `StepSpec` \| `TransformEdgeSpec` |
+
+The two unions are annotations, not classes you instantiate — calling either one raises `TypeError`. They exist so a signature can say *any declared box*, or *anything a strategy must bind*, and have it type-check.
+<!-- language:end -->
 
 ### 2. Check it and draw it, before implementing anything
 
