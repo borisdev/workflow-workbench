@@ -17,9 +17,9 @@ def test_a_declared_fan_out_is_checked_and_runs() -> None:
     from examples.parallel import ParallelProcessing, cubes, squares
 
     spec = ParallelProcessing()
-    assert spec.check() == []
-    assert spec.check(squares) == []
-    assert not any("NOT CHECKED" in f for f in spec.check(squares))
+    assert spec.coherence_check() == []
+    assert spec.coherence_check(squares) == []
+    assert not any("NOT CHECKED" in f for f in spec.coherence_check(squares))
 
     assert spec.render(squares).run_sync(inputs=[1, 2, 3, 4]) == 30
     assert spec.render(cubes).run_sync(inputs=[1, 2, 3, 4]) == 100
@@ -59,7 +59,7 @@ def test_a_fan_out_names_the_item_so_both_ends_are_checked() -> None:
     async def double(ctx) -> int:
         return ctx.inputs * 2
 
-    findings = Mismatched().check(StrategySpec("s", {step: double}))
+    findings = Mismatched().coherence_check(StrategySpec("s", {step: double}))
     assert any("wrong_item" in f and "one item per run" in f for f in findings), findings
 
 
@@ -103,7 +103,7 @@ def test_a_streaming_node_is_declared_and_fans_out() -> None:
 
     spec = Splitter()
     strategy = StrategySpec("by_space", {split: by_space})
-    assert not [f for f in spec.check(strategy) if not f.startswith("NOT CHECKED")]
+    assert not [f for f in spec.coherence_check(strategy) if not f.startswith("NOT CHECKED")]
 
     graph = spec.render(strategy)
     assert sorted(graph.run_sync(inputs="a b c")) == ["a", "b", "c"]
@@ -171,7 +171,7 @@ def test_the_shopping_list_from_the_MapEdgeSpec_docstring_runs() -> None:
 
     strategy = StrategySpec("lookup", {price: look_up})
     spec = Shop()
-    assert spec.check(strategy) == []
+    assert spec.coherence_check(strategy) == []
 
     assert round(spec.render(strategy).run_sync(inputs=list(prices)), 2) == 4.80
     # the point of the whole construct: `price` never sees the list
@@ -183,7 +183,7 @@ def test_a_fan_out_that_never_rejoins_is_refused() -> None:
     """⛔ The mirror of `check_step_arity`, and it was missing until someone asked why a join is
     always needed. Measured before the check existed:
 
-        check() -> clean
+        coherence_check() -> clean
         run     -> 1.2
         price ran 3 times, with ['milk', 'eggs', 'bread']
 
@@ -240,5 +240,33 @@ def test_the_join_need_not_be_adjacent_to_the_fan_out() -> None:
 
     spec = TwoStepsThenJoin()
     strategy = StrategySpec("s", {first: keep, second: double})
-    assert spec.check(strategy) == []
+    assert spec.coherence_check(strategy) == []
     assert spec.render(strategy).run_sync(inputs=[1, 2, 3]) == 12
+
+
+def test_the_fan_out_finding_is_about_the_EDGE_that_fans_out() -> None:
+    """`about` is the handle a caller filters on, and for this defect it is the edge.
+
+    Neither endpoint alone names the problem: START is fine and `price` is fine — it is the
+    `.map()` between them with nothing downstream to divide it back. An `about` naming either
+    node would send an agent to fix something that is not broken.
+    """
+    shopping = VariableSpec("shopping", list)
+    item = VariableSpec("item", str)
+    cost = VariableSpec("cost", float)
+    price = StepSpec("price", inputs=(item,), outputs=(cost,))
+
+    class NoJoin(GraphSpec):
+        name = "no_join"
+        input_type, output_type = list, float
+        nodes = (price,)
+        edges = (MapEdgeSpec(source=START, target=price, carries=shopping, delivers=item),
+                 EdgeSpec(source=price, target=END, carries=cost))
+
+    async def look_up(ctx) -> float:
+        return 1.0
+
+    fan = [f for f in NoJoin().coherence_check(StrategySpec("s", {price: look_up}))
+           if "without passing a join" in f]
+    assert [(f.check, f.about, f.blocking) for f in fan] == \
+        [("check_fan_out_rejoins", "START->price", True)]

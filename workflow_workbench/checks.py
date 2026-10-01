@@ -1,7 +1,8 @@
 """Every check, as pure data. No `pydantic_graph` import anywhere in this module.
 
-Each returns a list of findings — strings a human can act on — and never raises. An empty list is
-a pass; `GraphSpec.check()` is what turns a non-empty list into an exception.
+Each returns a list of `CoherenceFinding` — sentences a human can act on, carrying the structure
+an agent would otherwise have to regex back out — and never raises. An empty list is a pass;
+`GraphSpec.coherence_check()` is what turns a non-empty list into an exception.
 
 ⚠️ Findings say what is wrong AND what it costs. "node 'x' is unreachable" is a fact; "…so its
 implementation never runs, and a strategy that binds it will look like it works" is a reason to
@@ -10,7 +11,7 @@ fix it.
 from __future__ import annotations
 
 import inspect
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from typing import Any
 
 from workflow_workbench.spec import (
@@ -29,14 +30,81 @@ from workflow_workbench.spec import (
     is_sentinel,
 )
 
-__all__ = ["check_names", "check_reachable", "check_variables", "check_bindings",
+__all__ = ["CoherenceFinding", "blocking", "NOT_CHECKED",
+           "check_names", "check_reachable", "check_variables", "check_bindings",
            "check_implementations", "check_subgraphs", "check_step_arity", "check_decisions",
            "check_variable_types", "check_transform_edges",
            "check_fan_out_rejoins"]
 
 
+NOT_CHECKED = "NOT CHECKED"
+"""The prefix that marks a STATED GAP rather than a defect. `.claude/rules/checks.md`: NOT CHECKED
+and 0 FOUND must never render the same — this is the one spelling of that distinction, and
+`CoherenceFinding.blocking` is how a caller reads it without matching on text."""
+
+
+def _is_blocking(message: str) -> bool:
+    """The ONE definition. `CoherenceFinding.blocking` and `blocking()` both call it, so the field
+    and the filter cannot drift apart into two slightly different ideas of what stops a render."""
+    return not message.startswith(NOT_CHECKED)
+
+
+class CoherenceFinding(str):
+    """One thing a check found, carrying what a caller needs instead of making them regex it out.
+
+    A `str` SUBCLASS, deliberately. `"x" in f`, `f.startswith(...)`, `"\\n".join(findings)`,
+    `f == "the raw message"`, sorting, hashing and `repr()` in a printed list all behave exactly
+    as they did when these were plain strings — so this is additive, and the ~30 existing string
+    call sites here and in both downstream repos need no edit. A frozen dataclass is tidier and
+    costs a second breaking migration one release after `StepSpec`; that is why it loses.
+
+    ⛔ `str(finding)` must reproduce the message BYTE FOR BYTE, and `__repr__` is deliberately NOT
+    overridden. The 221 existing tests assert finding substrings, and the examples print whole
+    lists of them — that is a real oracle for this change only as long as neither rendering moves.
+
+        check      the producing function's name, e.g. "check_variables"
+        about      a node / join / decision `name`; "source->target" for an edge; the strategy
+                   `name`; "" for a finding about the whole design
+        blocking   derived: False for a stated gap (`NOT CHECKED — …`), True for a defect.
+                   A bool, not an enum — two states, and no third has been observed.
+    """
+
+    __slots__ = ("check", "about", "blocking")
+
+    check: str
+    about: str
+    blocking: bool
+
+    def __new__(cls, message: str, *, check: str, about: str = "") -> CoherenceFinding:
+        self = super().__new__(cls, message)
+        self.check = check
+        self.about = about
+        self.blocking = _is_blocking(message)
+        return self
+
+
+def blocking(findings: Iterable[str]) -> list[str]:
+    """The findings that STOP a render — everything that is not a stated gap.
+
+    ⚠️ Takes `Iterable[str]`, not `Iterable[CoherenceFinding]`, and matches on the prefix rather
+    than reading `.blocking`. A caller that has mixed in a plain string of its own gets the same
+    verdict either way, and `_is_blocking` is what keeps the two readings identical.
+    """
+    return [f for f in findings if _is_blocking(f)]
+
+
 def _name(ep: Any) -> str:
     return "START" if isinstance(ep, _Start) else "END" if isinstance(ep, _End) else ep.name
+
+
+def _about_edge(e: EdgeSpec) -> str:
+    """An edge has no name of its own, so it is identified by the two it joins."""
+    return f"{_name(e.source)}->{_name(e.target)}"
+
+
+def _about(spec: Any) -> str:
+    """`about` for anything bindable — a node has a name, a transform edge has two endpoints."""
+    return _about_edge(spec) if isinstance(spec, EdgeSpec) else getattr(spec, "name", "")
 
 
 def _type_name(t: Any) -> str:
@@ -46,7 +114,7 @@ def _type_name(t: Any) -> str:
     return getattr(t, "__name__", None) or repr(t)
 
 
-def check_names(nodes: tuple[NodeSpec, ...]) -> list[str]:
+def check_names(nodes: tuple[NodeSpec, ...]) -> list[CoherenceFinding]:
     """Node names must be unique — `render()` uses them as graph node ids.
 
     ⚠️ This check exists BECAUSE `StepSpec` is `eq=False`. Identity keying is what stops a
@@ -54,19 +122,22 @@ def check_names(nodes: tuple[NodeSpec, ...]) -> list[str]:
     distinct nodes may share a name, and pydantic-graph would then refuse with a message about
     node ids that points at the render, not at the declaration.
     """
-    findings, seen = [], {}
+    findings: list[CoherenceFinding] = []
+    seen: dict[str, list[NodeSpec]] = {}
     for n in nodes:
         seen.setdefault(n.name, []).append(n)
     for name, group in seen.items():
         if len(group) > 1:
-            findings.append(
+            findings.append(CoherenceFinding(
                 f"{len(group)} different nodes are named {name!r}. Node names become graph node "
                 f"ids, so this cannot be rendered — and because StepSpec is identity-keyed these "
-                f"really are separate nodes, not one node declared twice.")
+                f"really are separate nodes, not one node declared twice.",
+                check="check_names", about=name))
     return findings
 
 
-def check_reachable(nodes: tuple[NodeSpec, ...], edges: tuple[EdgeSpec, ...]) -> list[str]:
+def check_reachable(nodes: tuple[NodeSpec, ...],
+                    edges: tuple[EdgeSpec, ...]) -> list[CoherenceFinding]:
     """Every node reachable from START, and every node able to reach END.
 
     Pure Python over the declaration — no graph is built, so this runs before a single
@@ -76,7 +147,7 @@ def check_reachable(nodes: tuple[NodeSpec, ...], edges: tuple[EdgeSpec, ...]) ->
       · unreachable from START — the node never runs; a strategy binding it looks like it works
       · cannot reach END — the work is done and thrown away, which reads as a silent drop
     """
-    findings: list[str] = []
+    findings: list[CoherenceFinding] = []
     fwd: dict[Any, list[Any]] = {}
     bwd: dict[Any, list[Any]] = {}
     for e in edges:
@@ -96,10 +167,16 @@ def check_reachable(nodes: tuple[NodeSpec, ...], edges: tuple[EdgeSpec, ...]) ->
 
     starts = [e.source for e in edges if isinstance(e.source, _Start)]
     ends = [e.target for e in edges if isinstance(e.target, _End)]
+    # ⚠️ `about=""` — these two are about the DESIGN, not about any one node. An `about` naming
+    # some arbitrary node would be a worse answer than an honest empty one.
     if not starts:
-        findings.append("no edge leaves START — nothing in this design can ever run.")
+        findings.append(CoherenceFinding(
+            "no edge leaves START — nothing in this design can ever run.",
+            check="check_reachable"))
     if not ends:
-        findings.append("no edge reaches END — this design produces no output.")
+        findings.append(CoherenceFinding(
+            "no edge reaches END — this design produces no output.",
+            check="check_reachable"))
 
     from_start: set[int] = set()
     for s in starts:
@@ -110,25 +187,32 @@ def check_reachable(nodes: tuple[NodeSpec, ...], edges: tuple[EdgeSpec, ...]) ->
 
     for n in nodes:
         if starts and id(n) not in from_start:
-            findings.append(
+            findings.append(CoherenceFinding(
                 f"node {n.name!r} is unreachable from START — its implementation never runs, so a "
-                f"strategy that binds it will appear to work while doing nothing.")
+                f"strategy that binds it will appear to work while doing nothing.",
+                check="check_reachable", about=n.name))
         if ends and id(n) not in to_end:
-            findings.append(
+            findings.append(CoherenceFinding(
                 f"node {n.name!r} cannot reach END — whatever it produces is discarded, which is "
-                f"indistinguishable from a step that was never wired.")
+                f"indistinguishable from a step that was never wired.",
+                check="check_reachable", about=n.name))
 
     declared = {id(n) for n in nodes}
     for e in edges:
         for ep in (e.source, e.target):
             if not is_sentinel(ep) and id(ep) not in declared:
-                findings.append(
+                # ⚠️ `about` is the EDGE, not the undeclared node. The node is not in `nodes`, so
+                # naming it would point a caller at something it cannot look up; the edge is the
+                # thing that exists and the thing to delete or re-wire.
+                findings.append(CoherenceFinding(
                     f"edge {e!r} references node {_name(ep)!r}, which is not in `nodes`. "
-                    f"An undeclared node is invisible to every other check and to any strategy.")
+                    f"An undeclared node is invisible to every other check and to any strategy.",
+                    check="check_reachable", about=_about_edge(e)))
     return findings
 
 
-def check_variables(nodes: tuple[NodeSpec, ...], edges: tuple[EdgeSpec, ...]) -> list[str]:
+def check_variables(nodes: tuple[NodeSpec, ...],
+                    edges: tuple[EdgeSpec, ...]) -> list[CoherenceFinding]:
     """Per edge: the variable it carries must be an output of its source and an input of its target.
 
     ⛔ PER EDGE, never aggregated across a node's edges. The aggregate form — "is the set of a
@@ -145,15 +229,16 @@ def check_variables(nodes: tuple[NodeSpec, ...], edges: tuple[EdgeSpec, ...]) ->
     Edges touching START/END are skipped on the sentinel side: sentinels declare no variables, and
     the graph's own `input_type`/`output_type` is what constrains them.
     """
-    findings: list[str] = []
+    findings: list[CoherenceFinding] = []
     for e in edges:
         if not is_sentinel(e.source):
             if e.carries not in e.source.outputs:
                 declared = ", ".join(v.name for v in e.source.outputs) or "nothing"
-                findings.append(
+                findings.append(CoherenceFinding(
                     f"edge {e!r} carries {e.carries.name!r}, but {e.source.name!r} does not "
                     f"declare it as an output (it declares: {declared}). Either the edge is wired "
-                    f"to the wrong variable or the node's contract is out of date.")
+                    f"to the wrong variable or the node's contract is out of date.",
+                    check="check_variables", about=_about_edge(e)))
         if not is_sentinel(e.target):
             # ⚠️ `delivers`, not `carries`. On a fan-out or a transform the two ends of one wire
             # carry DIFFERENT variables, and the target must be checked against what ARRIVES.
@@ -165,13 +250,15 @@ def check_variables(nodes: tuple[NodeSpec, ...], edges: tuple[EdgeSpec, ...]) ->
                 declared = ", ".join(v.name for v in e.target.inputs) or "nothing"
                 how = (" (reshaped on the wire)" if isinstance(e, TransformEdgeSpec)
                        else " (one item per run)" if isinstance(e, MapEdgeSpec) else "")
-                findings.append(
+                findings.append(CoherenceFinding(
                     f"edge {e!r} delivers {arrives.name!r}{how} to {e.target.name!r}, which does "
-                    f"not declare it as an input (it declares: {declared}).")
+                    f"not declare it as an input (it declares: {declared}).",
+                    check="check_variables", about=_about_edge(e)))
     return findings
 
 
-def check_bindings(bindables: tuple[Bindable, ...], strategy: StrategySpec) -> list[str]:
+def check_bindings(bindables: tuple[Bindable, ...],
+                   strategy: StrategySpec) -> list[CoherenceFinding]:
     """The strategy binds exactly the declared VARIATION POINTS — no missing, no extra.
 
     ⚠️ `bindables`, not `nodes`. A `TransformEdgeSpec` with no `apply=` is a variation point too,
@@ -182,27 +269,29 @@ def check_bindings(bindables: tuple[Bindable, ...], strategy: StrategySpec) -> l
     binding keyed on a look-alike node from another design, which is the failure identity keying
     exists to prevent.
     """
-    findings: list[str] = []
+    findings: list[CoherenceFinding] = []
     declared = {id(n): n for n in bindables}
     bound = {id(n): n for n in strategy.bindings}
     for nid, n in declared.items():
         if nid not in bound:
-            findings.append(
+            findings.append(CoherenceFinding(
                 f"strategy {strategy.name!r} does not bind {_bindable_name(n)}. Every one is "
                 f"bound "
                 f"explicitly, including unchanged ones — a partial strategy makes 'what varies "
-                f"between these arms' unanswerable without reading both files.")
+                f"between these arms' unanswerable without reading both files.",
+                check="check_bindings", about=_about(n)))
     for nid, n in bound.items():
         if nid not in declared:
-            findings.append(
+            findings.append(CoherenceFinding(
                 f"strategy {strategy.name!r} binds {_bindable_name(n)}, which this design does "
                 f"not declare. "
                 f"Most likely it was written against a different GraphSpec that has a node of the "
-                f"same name.")
+                f"same name.",
+                check="check_bindings", about=_about(n)))
     return findings
 
 
-def check_implementations(strategy: StrategySpec) -> list[str]:
+def check_implementations(strategy: StrategySpec) -> list[CoherenceFinding]:
     """Each bound CALLABLE is callable and takes exactly one positional argument (`ctx`).
 
     Caught here rather than inside `GraphBuilder`, so a strategy's fault is reported against the
@@ -213,13 +302,14 @@ def check_implementations(strategy: StrategySpec) -> list[str]:
     at the wrong file. Whether a subgraph fits is a RELATIONAL fact about it and the parent node,
     so `check_subgraphs`, which is handed the parent, owns it.
     """
-    findings: list[str] = []
+    findings: list[CoherenceFinding] = []
     for node, impl in strategy.bindings.items():
         if isinstance(impl, SubgraphBinding):
             continue
         if not callable(impl):
-            findings.append(
-                f"{strategy.name!r} binds {node.name!r} to {impl!r}, which is not callable.")
+            findings.append(CoherenceFinding(
+                f"{strategy.name!r} binds {node.name!r} to {impl!r}, which is not callable.",
+                check="check_implementations", about=_about(node)))
             continue
         try:
             sig = inspect.signature(impl)
@@ -229,11 +319,12 @@ def check_implementations(strategy: StrategySpec) -> list[str]:
                       if p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD)
                       and p.default is p.empty]
         if len(positional) != 1:
-            findings.append(
+            findings.append(CoherenceFinding(
                 f"{strategy.name!r} binds {node.name!r} to "
                 f"{getattr(impl, '__qualname__', impl)}{sig}, which takes {len(positional)} "
                 f"required positional arguments. A pydantic-graph step body takes exactly one "
-                f"(`ctx`).")
+                f"(`ctx`).",
+                check="check_implementations", about=_about(node)))
     return findings
 
 
@@ -287,7 +378,7 @@ def _port_type(parent: Any, node: StepSpec, side: str) -> tuple[Any, str | None]
 
 
 def check_subgraphs(parent: Any, strategy: StrategySpec,
-                    *, ancestry: tuple[tuple[type, int], ...] = ()) -> list[str]:
+                    *, ancestry: tuple[tuple[type, int], ...] = ()) -> list[CoherenceFinding]:
     """Every child design used as a node implementation fits the node it is bound to.
 
     ⚠️ `parent` is typed `Any` on purpose: `graph_spec` imports this module, so this module cannot
@@ -305,7 +396,7 @@ def check_subgraphs(parent: Any, strategy: StrategySpec,
     Cycles are NOT checked here. `GraphSpec._check` owns that, so there is exactly one place that
     decides whether a chain has closed on itself.
     """
-    findings: list[str] = []
+    findings: list[CoherenceFinding] = []
     declared_nodes = {id(n) for n in parent.nodes}
 
     for node, binding in strategy.bindings.items():
@@ -321,32 +412,39 @@ def check_subgraphs(parent: Any, strategy: StrategySpec,
                                        ("output", "output_type", child.output_type)):
             want, note = _port_type(parent, node, side)
             if note is not None:
-                findings.append(note if note.startswith("NOT CHECKED") else f"{where}, but {note}")
+                findings.append(CoherenceFinding(
+                    note if note.startswith(NOT_CHECKED) else f"{where}, but {note}",
+                    check="check_subgraphs", about=_about(node)))
                 continue
             if child_type is not want:
                 verb = "accepts" if side == "input" else "produces"
-                findings.append(
+                findings.append(CoherenceFinding(
                     f"{where}, but the node {verb} {_type_name(want)} and the child graph "
                     f"declares {port} {_type_name(child_type)}. A subgraph is a valid "
-                    f"implementation only when its public boundary matches the role it fills.")
+                    f"implementation only when its public boundary matches the role it fills.",
+                    check="check_subgraphs", about=_about(node)))
 
         for attr in ("state_type", "deps_type"):
             mine, theirs = getattr(parent, attr), getattr(child, attr)
             if theirs is not mine:
-                findings.append(
+                findings.append(CoherenceFinding(
                     f"{where}, but the parent declares {attr} {_type_name(mine)} and the child "
                     f"declares {_type_name(theirs)}. A subgraph runs on the parent's exact "
                     f"{attr.split('_')[0]} object, so the declared types must be identical — "
                     f"there is no conversion, and inventing one would make it ambiguous who owns "
-                    f"a mutation.")
+                    f"a mutation.",
+                    check="check_subgraphs", about=_about(node)))
 
-        findings += child._check(child_strategy, ancestry=ancestry)
+        # ⚠️ NOT re-tagged. A child's findings already name the check that produced them and the
+        # node inside the CHILD they are about; overwriting either with the parent's node would
+        # replace a precise answer with a vaguer one.
+        findings += child._coherence_check(child_strategy, ancestry=ancestry)
 
     return findings
 
 
 def check_decisions(decisions: tuple[DecisionSpec, ...],
-                    edges: tuple[EdgeSpec, ...]) -> list[str]:
+                    edges: tuple[EdgeSpec, ...]) -> list[CoherenceFinding]:
     """`when` appears exactly on the edges leaving a decision, and nowhere else.
 
     Both directions are real mistakes with different consequences:
@@ -360,37 +458,44 @@ def check_decisions(decisions: tuple[DecisionSpec, ...],
         a decision with no branches at all            routes nowhere; everything downstream is
                                                       unreachable and the value is dropped
     """
-    findings: list[str] = []
+    findings: list[CoherenceFinding] = []
     declared = {id(d) for d in decisions}
 
+    # ⚠️ `about` follows the SUBJECT of each sentence, not the loop variable. Two of these four
+    # are about the decision and two are about one edge of it — a caller filtering on a decision
+    # name would otherwise be handed findings it cannot act on at that granularity.
     for d in decisions:
         branches = [e for e in edges if e.source is d]
         if not branches:
-            findings.append(
+            findings.append(CoherenceFinding(
                 f"decision {d.name!r} has no branches — no edge leaves it. It would route nothing "
-                f"and everything it was meant to reach is unreachable.")
+                f"and everything it was meant to reach is unreachable.",
+                check="check_decisions", about=d.name))
         for e in branches:
             if e.when is None:
-                findings.append(
+                findings.append(CoherenceFinding(
                     f"edge {e!r} leaves decision {d.name!r} without a `when=` type. A branch is "
                     f"chosen by the type of the routed value; without one there is nothing to "
-                    f"match on and the branch cannot be built.")
+                    f"match on and the branch cannot be built.",
+                    check="check_decisions", about=_about_edge(e)))
         seen: dict[Any, int] = {}
         for e in branches:
             if e.when is not None:
                 seen[e.when] = seen.get(e.when, 0) + 1
         for typ, n in seen.items():
             if n > 1:
-                findings.append(
+                findings.append(CoherenceFinding(
                     f"decision {d.name!r} has {n} branches matching {_type_name(typ)}. Only the "
-                    f"first can ever be taken; the rest are dead and read as coverage.")
+                    f"first can ever be taken; the rest are dead and read as coverage.",
+                    check="check_decisions", about=d.name))
 
     for e in edges:
         if e.when is not None and id(e.source) not in declared:
-            findings.append(
+            findings.append(CoherenceFinding(
                 f"edge {e!r} carries `when={_type_name(e.when)}` but its source is not a "
                 f"DecisionSpec, so the condition is IGNORED — the declaration reads as "
-                f"conditional and the graph routes unconditionally.")
+                f"conditional and the graph routes unconditionally.",
+                check="check_decisions", about=_about_edge(e)))
     return findings
 
 
@@ -427,7 +532,8 @@ def _exclusive_groups(decisions: tuple[DecisionSpec, ...],
 
 
 def check_step_arity(nodes: tuple[StepSpec, ...], edges: tuple[EdgeSpec, ...],
-                     *, decisions: tuple[DecisionSpec, ...] = ()) -> list[str]:
+                     *, decisions: tuple[DecisionSpec, ...] = ()
+                     ) -> list[CoherenceFinding]:
     """A step body receives exactly ONE value, so a node cannot consume two inputs at once.
 
     ⚠️ Takes `nodes` ONLY, never joins. A `JoinSpec` exists precisely to receive several arrivals
@@ -470,7 +576,7 @@ def check_step_arity(nodes: tuple[StepSpec, ...], edges: tuple[EdgeSpec, ...],
     The lesson is in the rule's shape: it is stated in terms of edge COUNT, which is easy to
     compute and is not the question. Concurrency is.
     """
-    findings: list[str] = []
+    findings: list[CoherenceFinding] = []
     groups = _exclusive_groups(decisions, edges)
     back = _back_edges(edges)
     incoming: dict[int, list[EdgeSpec]] = {}
@@ -483,22 +589,24 @@ def check_step_arity(nodes: tuple[StepSpec, ...], edges: tuple[EdgeSpec, ...],
     for n in nodes:
         if len(n.inputs) > 1:
             names = ", ".join(v.name for v in n.inputs)
-            findings.append(
+            findings.append(CoherenceFinding(
                 f"node {n.name!r} declares {len(n.inputs)} inputs ({names}), but a pydantic-graph "
                 f"step body receives exactly one value — there is no invocation in which both "
                 f"arrive. Combining two arrivals is what a join is for; a step cannot express it, "
-                f"and the declaration reads as though it can.")
+                f"and the declaration reads as though it can.",
+                check="check_step_arity", about=n.name))
 
         arrivals = incoming.get(id(n), [])
         if len(arrivals) > 1 and _mutually_exclusive(arrivals, groups):
             continue
         if len(arrivals) > 1:
             froms = ", ".join(sorted(_name(e.source) for e in arrivals))
-            findings.append(
+            findings.append(CoherenceFinding(
                 f"node {n.name!r} is fed by {len(arrivals)} edges ({froms}), so it is invoked "
                 f"once PER EDGE with one value each time, and all but one result is discarded. "
                 f"Measured on exactly this shape: the step ran twice and the graph returned only "
-                f"the first. If the intent is to combine them, this is a join, not a step.")
+                f"the first. If the intent is to combine them, this is a join, not a step.",
+                check="check_step_arity", about=n.name))
 
     return findings
 
@@ -572,7 +680,7 @@ def _produces(annotation: Any, declared: Any) -> bool | None:
     return None                              # generic aliases, TypeVars, exotic forms
 
 
-def check_variable_types(parent: Any, strategy: StrategySpec) -> list[str]:
+def check_variable_types(parent: Any, strategy: StrategySpec) -> list[CoherenceFinding]:
     """Each implementation returns the type its role is declared to produce.
 
     ⛔ WHY THIS EXISTS, measured before it was written:
@@ -580,10 +688,10 @@ def check_variable_types(parent: Any, strategy: StrategySpec) -> list[str]:
         wrong = StepSpec("wrong", inputs=(text,), outputs=(number,))   # declares int
         async def returns_a_string(ctx) -> str: ...                    # returns str
 
-        check() -> clean
+        coherence_check() -> clean
         run('x') -> "got 'not an int: x' (str)"
 
-    Nothing objected — not `check()`, not `build(validate_graph_structure=True)`, not the run.
+    Nothing objected — not `coherence_check()`, not `build(validate_graph_structure=True)`, not the run.
 
     ⚠️ And this gap is WORSE here than in raw pydantic-graph, which is the uncomfortable part.
     Their API never asks you to write the type down, so it promises nothing. This library invites
@@ -599,7 +707,7 @@ def check_variable_types(parent: Any, strategy: StrategySpec) -> list[str]:
     check that emits a finding per unannotated function is noise, and noise is how a check stops
     being read.
     """
-    findings: list[str] = []
+    findings: list[CoherenceFinding] = []
     unchecked: list[str] = []
 
     for node in parent.nodes:
@@ -621,18 +729,23 @@ def check_variable_types(parent: Any, strategy: StrategySpec) -> list[str]:
             unchecked.append(
                 f"{node.name} ({_type_name(annotation)} vs {_type_name(declared)}: not decidable)")
         elif verdict is False:
-            findings.append(
+            findings.append(CoherenceFinding(
                 f"{strategy.name!r} binds {node.name!r} to "
                 f"{getattr(impl, '__qualname__', impl)}, which returns "
                 f"{_type_name(annotation)} — but {node.name!r} is declared to produce "
                 f"{_type_name(declared)}. The declaration is what the diagram draws and what a "
-                f"reader of this design believes; one of the two is wrong.")
+                f"reader of this design believes; one of the two is wrong.",
+                check="check_variable_types", about=_about(node)))
 
+    # ⚠️ `about=""` because this one line covers SEVERAL nodes — which is the whole reason it is
+    # aggregated. Naming one of them would be a worse answer than naming none; the node names are
+    # in the text, where a reader needs them and a filter cannot be misled by them.
     if unchecked:
-        findings.append(
+        findings.append(CoherenceFinding(
             "NOT CHECKED — return types were not compared for: " + "; ".join(sorted(unchecked)) +
             ". An unannotated or unresolvable implementation cannot be checked against its "
-            "declared output, and saying nothing would make that look like a pass.")
+            "declared output, and saying nothing would make that look like a pass.",
+            check="check_variable_types"))
     return findings
 
 
@@ -673,7 +786,8 @@ def _bindable_name(spec: Any) -> str:
     return f"node {getattr(spec, 'name', spec)!r}"
 
 
-def check_transform_edges(edges: tuple[EdgeSpec, ...], strategy: StrategySpec | None) -> list[str]:
+def check_transform_edges(edges: tuple[EdgeSpec, ...],
+                          strategy: StrategySpec | None) -> list[CoherenceFinding]:
     """A transform edge is fixed (`apply=`) or a variation point (bound) — exactly one.
 
     ⛔ Neither is a silently missing transform: the value would cross unchanged while the
@@ -687,37 +801,41 @@ def check_transform_edges(edges: tuple[EdgeSpec, ...], strategy: StrategySpec | 
     coroutine object and warns "never awaited". A value that is a coroutine flows on to the next
     step and fails there, attributed to the wrong place.
     """
-    findings: list[str] = []
+    findings: list[CoherenceFinding] = []
     for e in edges:
         if not isinstance(e, TransformEdgeSpec):
             continue
         bound = strategy is not None and e in strategy.bindings
         if e.apply is not None and bound:
-            findings.append(
+            findings.append(CoherenceFinding(
                 f"{e!r} declares `apply=` AND is bound by strategy {strategy.name!r}. Exactly one "
-                f"— otherwise which of the two runs is a coin toss.")
+                f"— otherwise which of the two runs is a coin toss.",
+                check="check_transform_edges", about=_about_edge(e)))
         if e.apply is None and strategy is not None and not bound:
-            findings.append(
+            findings.append(CoherenceFinding(
                 f"{e!r} has no `apply=` and no binding, so nothing reshapes the value. It would "
                 f"cross unchanged while the declaration says it becomes "
-                f"{e.delivers.name!r} — a lie the diagram would repeat.")
+                f"{e.delivers.name!r} — a lie the diagram would repeat.",
+                check="check_transform_edges", about=_about_edge(e)))
         fn = e.apply if e.apply is not None else (strategy[e] if bound else None)
         if fn is not None and inspect.iscoroutinefunction(fn):
-            findings.append(
+            findings.append(CoherenceFinding(
                 f"{e!r} is bound to an ASYNC function. A transform runs on the wire and cannot "
                 f"await — pydantic-graph would not reject it, it would quietly pass a coroutine "
                 f"object to the next step. If it needs to await, it is a stage: give it a "
-                f"StepSpec.")
+                f"StepSpec.",
+                check="check_transform_edges", about=_about_edge(e)))
     return findings
 
 
-def check_fan_out_rejoins(nodes: tuple[NodeSpec, ...], edges: tuple[EdgeSpec, ...]) -> list[str]:
+def check_fan_out_rejoins(nodes: tuple[NodeSpec, ...],
+                          edges: tuple[EdgeSpec, ...]) -> list[CoherenceFinding]:
     """Everything a fan-out produces must reach a join before it reaches END.
 
     ⛔ THE MIRROR OF `check_step_arity`, and it was missing. Measured on a three-item shopping
     list with `map -> price -> END` and no join:
 
-        check() -> clean
+        coherence_check() -> clean
         run     -> 1.2
         price ran 3 times, with ['milk', 'eggs', 'bread']
 
@@ -734,7 +852,7 @@ def check_fan_out_rejoins(nodes: tuple[NodeSpec, ...], edges: tuple[EdgeSpec, ..
     `map -> a -> b -> join -> END` is fine, and so is a branch, as long as every path from the
     fanned target to END passes through one.
     """
-    findings: list[str] = []
+    findings: list[CoherenceFinding] = []
     fans = [e for e in edges if isinstance(e, MapEdgeSpec)]
     if not fans:
         return findings
@@ -760,10 +878,11 @@ def check_fan_out_rejoins(nodes: tuple[NodeSpec, ...], edges: tuple[EdgeSpec, ..
 
     for e in fans:
         if reaches_end_without_a_join(e.target):
-            findings.append(
+            findings.append(CoherenceFinding(
                 f"edge {e!r} fans out, but a path from {_name(e.target)!r} reaches END without "
                 f"passing a join. Every item produces its own result and a step cannot merge "
                 f"them, so all but one are discarded — silently, with the right answer's shape. "
                 f"Add a JoinSpec: a reducer `(current, input) -> current` is the only thing that "
-                f"can put them back together.")
+                f"can put them back together.",
+                check="check_fan_out_rejoins", about=_about_edge(e)))
     return findings

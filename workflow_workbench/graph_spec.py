@@ -13,6 +13,7 @@ from typing import Any, ClassVar
 from pydantic_graph import GraphBuilder
 
 from workflow_workbench import checks
+from workflow_workbench.checks import CoherenceFinding, blocking
 from workflow_workbench.diagram import diagram as _diagram, diff_diagram as _diff_diagram
 from workflow_workbench.spec import (
     Bindable,
@@ -45,7 +46,7 @@ class GraphSpec:
                      EdgeSpec(source=load, target=extract, carries=raw_text),
                      EdgeSpec(source=extract, target=END))
 
-    The DAG is DATA, not code — which is what lets `check()` and `diagram()` run with zero
+    The DAG is DATA, not code — which is what lets `coherence_check()` and `diagram()` run with zero
     implementations and no engine.
 
     ⛔ There is exactly ONE way a graph comes into existence here: `edges` is compiled by `_wire`.
@@ -84,7 +85,7 @@ class GraphSpec:
 
     # ── checking ────────────────────────────────────────────────────────────────────────────
 
-    def check(self, strategy: StrategySpec | None = None) -> list[str]:
+    def coherence_check(self, strategy: StrategySpec | None = None) -> list[CoherenceFinding]:
         """Every applicable check, as findings. Never raises.
 
         With no strategy: the design's own coherence — names, reachability, variables. Usable the
@@ -95,14 +96,18 @@ class GraphSpec:
         ⚠️ One method, not two. There is no "check the design" / "check the strategy" split
         because the no-strategy case needs no placeholder graph — the declaration is already data.
 
-        Recursion into subgraph bindings lives in `_check`, so nested designs can carry an
+        Recursion into subgraph bindings lives in `_coherence_check`, so nested designs can carry an
         ancestry path without that bookkeeping showing up in the public signature.
-        """
-        return self._check(strategy, ancestry=())
 
-    def _check(self, strategy: StrategySpec | None,
-               *, ancestry: tuple[tuple[type, int], ...]) -> list[str]:
-        """`check()`, plus the path of (design, strategy) pairs already open above this one.
+        ⚠️ Each finding is a `CoherenceFinding` — still a `str`, and still the same sentence, with
+        `check`, `about` and `blocking` on it so a caller can branch on structure instead of
+        matching on text. `checks.blocking(spec.coherence_check(s))` is the filter `render()` itself uses.
+        """
+        return self._coherence_check(strategy, ancestry=())
+
+    def _coherence_check(self, strategy: StrategySpec | None,
+               *, ancestry: tuple[tuple[type, int], ...]) -> list[CoherenceFinding]:
+        """`coherence_check()`, plus the path of (design, strategy) pairs already open above this one.
 
         ⚠️ This is the ONE place a cycle is detected. `check_subgraphs` deliberately does not
         also check — two owners of one rule is how a chain ends up either reported twice or, worse,
@@ -114,18 +119,24 @@ class GraphSpec:
         """
         key = (type(self), id(strategy)) if strategy is not None else None
         if key is not None and key in ancestry:
-            return [
+            # ⚠️ `check="GraphSpec._coherence_check"` names the producing function, like every other
+            # finding — and here that is honestly not a `check_*` in `checks.py`. Cycle detection
+            # needs the `ancestry` only this method carries, which is why it lives here and why
+            # `check_subgraphs` deliberately does not also do it. `about` is the STRATEGY: the
+            # design is fine, and swapping the strategy is the move.
+            return [CoherenceFinding(
                 f"recursive subgraph binding: {self.name or type(self).__name__!r} with strategy "
                 f"{strategy.name!r} appears inside its own subgraph chain. Rendering it would "
                 f"build child graphs until the stack ran out — a design cannot implement one of "
-                f"its own nodes with itself."]
+                f"its own nodes with itself.",
+                check="GraphSpec._coherence_check", about=strategy.name)]
 
         # ⚠️ `nodes` is STEPS ONLY — the roles a strategy fills. `NodeSpec` is every declared
         # box. Conflating the two is how a join ends up demanding an implementation, or an
         # unreachable join goes unreported. Both axes now have a name, so the annotations below
         # are true rather than merely conventional.
         declared: tuple[NodeSpec, ...] = (*self.nodes, *self.joins, *self.decisions)
-        findings = list(checks.check_names(declared))
+        findings: list[CoherenceFinding] = list(checks.check_names(declared))
         findings += checks.check_variables(declared, self.edges)
         findings += checks.check_decisions(self.decisions, self.edges)
         findings += checks.check_step_arity(self.nodes, self.edges,
@@ -280,8 +291,8 @@ class GraphSpec:
         built graph. Nothing else should compare two bare `Graph` objects — there is no way to tell
         whether they came from one design.
         """
-        findings = self.check(strategy)
-        hard = [f for f in findings if not f.startswith("NOT CHECKED")]
+        findings = self.coherence_check(strategy)
+        hard = blocking(findings)
         if hard:
             raise SpecError(
                 f"{self.name or type(self).__name__} cannot be rendered with strategy "

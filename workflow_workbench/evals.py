@@ -24,6 +24,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
+from workflow_workbench.checks import blocking
 from workflow_workbench.graph_spec import GraphSpec
 from workflow_workbench.spec import SpecError, StrategySpec
 
@@ -108,7 +109,7 @@ def eval_battle(spec: GraphSpec, strategy_a: StrategySpec, strategy_b: StrategyS
         # never silently reported as though two different things were compared.
         pass
     for s in (strategy_a, strategy_b):
-        findings = [f for f in spec.check(s) if not f.startswith("NOT CHECKED")]
+        findings = blocking(spec.coherence_check(s))
         if findings:
             raise SpecError(f"strategy {s.name!r} does not satisfy "
                             f"{spec.name or type(spec).__name__}:\n  " + "\n  ".join(findings))

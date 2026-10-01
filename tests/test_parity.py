@@ -121,7 +121,7 @@ def test_the_probe_reads_parity_rather_than_keeping_its_own_copy() -> None:
 #: spelled out rather than globbed: `docs/migration-*.md` would silently cover a new file nobody
 #: reviewed. `test_the_retirement_exemptions_all_exist` fails if either path is renamed, so the
 #: exemption cannot outlive the document it was written for.
-_NAMES_THE_OLD_API = ("CHANGELOG.md", "docs/migration-0.2.md")
+_NAMES_THE_OLD_API = ("CHANGELOG.md", "docs/migration-0.2.md", "docs/migration-0.3.md")
 
 
 def _prose_docs(*, include_migration: bool = True) -> list[tuple[str, str]]:

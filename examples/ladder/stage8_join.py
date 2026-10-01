@@ -120,7 +120,7 @@ class BrokenGreetings(Greetings):
 
 def main() -> None:
     spec = Greetings()
-    print(f"check(): {spec.check(greet) or 'clean'}")
+    print(f"coherence_check(): {spec.coherence_check(greet) or 'clean'}")
 
     state = Guest()
     print(f"run('Ada') -> {spec.render(greet).run_sync(inputs='Ada', state=state)!r}")
@@ -132,7 +132,7 @@ def main() -> None:
 
     broken = StrategySpec("broken", {say_formal: formal, say_casual: casual,
                                      collect_as_step: collect_step, announce: announce_both})
-    for finding in BrokenGreetings().check(broken):
+    for finding in BrokenGreetings().coherence_check(broken):
         print(f"  refused: {finding[:110]}...")
     try:
         BrokenGreetings().render(broken)
