@@ -159,7 +159,7 @@ permissive = StrategySpec("permissive", {triage: do_triage_permissive, accept: d
 
 def main() -> None:
     spec = Intake()
-    print(f"check(): {spec.check(careful) or 'clean — gate, loop and dispatch, all declared'}\n")
+    print(f"coherence_check(): {spec.coherence_check(careful) or 'clean — gate, loop and dispatch, all declared'}\n")
 
     graph = spec.render(careful)
     for text in ("my cat is unwell", "metformin 1000 mg daily"):

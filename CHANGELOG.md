@@ -5,6 +5,73 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-10-01
+
+### ⛔ Breaking — `check()` is renamed to `coherence_check()`
+
+**Step-by-step upgrade: [`docs/migration-0.3.md`](docs/migration-0.3.md).** One line:
+
+```python
+spec.check(strategy)              # 0.2.0
+spec.coherence_check(strategy)    # 0.3.0
+```
+
+No alias. A missed call site is an `AttributeError` at the call, not a silent change of
+behaviour — same choice 0.2.0 made when `NodeSpec(...)` became a `TypeError`.
+
+**Why.** `check()` did not say what it checks, and the type it returns says `Coherence` — a word
+that appeared nowhere else in the API. One concept was wearing two names, which is the thing the
+house naming rule exists to prevent. `coherence_check()` grounds it.
+
+`design_check()` was considered and rejected: `spec` *is* the design, so `spec.design_check()`
+restates its own receiver.
+
+**Unchanged:** the existing `check_*` functions, and the `check` field on a finding — both name
+an individual check, which is what they still are.
+
+**Added, and it is the twelfth:** `check_recursion`. The recursive-subgraph rule was enforced
+inside `graph_spec.py`, so the generated rules table could not see it and said 11 while the code
+enforced 12. The rule moved into `checks.py` and is exported; the CALL SITE did not move, because
+a cycle has to stop the walk rather than be reported and walked into.
+
+### Added — `coherence_check()` returns `CoherenceFinding`, not a bare `str`
+
+**Backward compatible. No call site needs editing** — `CoherenceFinding` is a `str` subclass, so
+`"x" in f`, `f.startswith(...)`, `"\n".join(findings)`, `f == "the message"`, sorting, hashing
+and `repr()` in a printed list all behave exactly as before. Verified byte-for-byte across all 64
+findings the test designs produce: nothing in the text moved.
+
+```python
+f = spec.coherence_check(strategy)[0]
+f.check       # 'check_bindings' — the function that produced it
+f.about       # 'compose' — a node name; 'source->target' for an edge; '' for the whole design
+f.blocking    # True — False only for a `NOT CHECKED — …` stated gap
+
+from workflow_workbench import blocking
+blocking(findings)        # the filter `render()` uses; replaces startswith("NOT CHECKED")
+```
+
+**Why.** The findings were sentences, so the structure a caller needs was encoded in the prose.
+`[f for f in findings if not f.startswith("NOT CHECKED")]` was load-bearing control flow in three
+production call sites here and in both downstream repos — two different kinds of finding wearing
+one type, told apart by a prefix match. `.claude/rules/checks.md`: *NOT CHECKED and 0 FOUND must
+never render the same.* An agent using `coherence_check()` as its acceptance test could only regex it.
+
+A frozen dataclass is tidier and costs a second breaking migration one release after `StepSpec`;
+that is why the subclass wins. `blocking` is a bool rather than a severity enum — two states, and
+no third has been observed.
+
+- `CoherenceFinding`, `blocking()` and `NOT_CHECKED` are exported from the package root.
+- `coherence_check()` and every `check_*` function are now annotated `list[CoherenceFinding]`.
+
+### Upgrading
+
+**The `check()` → `coherence_check()` rename above is breaking** — see the step above, not this
+paragraph. What needs nothing is the FINDING REPRESENTATION: `CoherenceFinding` is a `str`
+subclass, so every existing `f.startswith(...)`, `"\n".join(findings)` and `f == msg` keeps
+working untouched. `uv lock --upgrade-package workflow-workbench` when you want the fields;
+until then a pinned consumer is unaffected by either change.
+
 ## [0.2.0] — 2026-09-30
 
 ### ⛔ Breaking — `NodeSpec` is renamed to `StepSpec`

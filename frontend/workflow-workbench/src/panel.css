@@ -25,6 +25,7 @@
 .ws-hot { color: #fbbf24; font-weight: 600; }
 .ws-mono { font-family: ui-monospace, Menlo, monospace; font-size: .78rem; }
 .ws-nr { color: #5b6684; font-style: italic; }
+.ws-brief p { margin: 0; font-size: .84rem; line-height: 1.45; color: #c9d3ea; }
 .ws-sub { color: #93a0c0; font-size: .74rem; margin: .5rem 0 0; }
 .ws-pill { display: inline-block; padding: .08rem .45rem; border-radius: 1rem; font-size: .66rem;
            border: 1px solid #2a3352; color: #93a0c0; margin-left: .3rem; }

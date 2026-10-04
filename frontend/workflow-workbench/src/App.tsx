@@ -108,6 +108,7 @@ function Canvas({ report }: { report: WorkflowReport }) {
         data: {
           id: n.id,
           varies: differs,
+          composed: Boolean(ba?.subgraph || bb?.subgraph),
           shown: differs
             ? [{ layer: a, binding: ba }, { layer: b, binding: bb }]
             : [{ layer: a, binding: ba }],

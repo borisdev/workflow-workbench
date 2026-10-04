@@ -72,7 +72,7 @@ TEXT = "metformin reduces hepatic glucose production in patients with insulin re
 
 def main() -> None:
     spec = Extraction()
-    print(f"check(): {spec.check(greedy) or 'clean'}")
+    print(f"coherence_check(): {spec.coherence_check(greedy) or 'clean'}")
 
     for strategy in (greedy, strict):
         graph = spec.render(strategy)

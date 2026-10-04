@@ -6,14 +6,20 @@
     Bindable         StepSpec | TransformEdgeSpec — everything a strategy must bind
     StrategySpec     one complete set of implementations for it
     SubgraphBinding  a whole child design, used as ONE node's implementation
+    CoherenceFinding what a check found — a `str`, with `check` / `about` / `blocking` on it
+    blocking         the findings that stop a render, i.e. all but the stated gaps
     spec.render(strategy) -> a real pydantic_graph.Graph
 
 `evals` is imported separately (`from workflow_workbench.evals import eval_battle`) so that `render()`
 stays usable without an evaluation framework installed.
 """
 from workflow_workbench.checks import (
+    NOT_CHECKED,
+    CoherenceFinding,
+    blocking,
     check_bindings,
     check_fan_out_rejoins,
+    check_recursion,
     check_decisions,
     check_implementations,
     check_names,
@@ -51,8 +57,10 @@ __all__ = [
     "SubgraphBinding",
     "SpecError",
     "START", "END",
+    "CoherenceFinding", "blocking", "NOT_CHECKED",
     "check_names", "check_reachable", "check_variables", "check_bindings",
     "check_implementations", "check_subgraphs", "check_step_arity", "check_decisions",
     "check_variable_types", "check_transform_edges", "check_fan_out_rejoins",
+    "check_recursion",
     "diagram", "diff_diagram",
 ]

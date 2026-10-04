@@ -6,10 +6,10 @@ not have:
     does it RUN?        can the feature be reached at all from a GraphSpec, if necessary through
                         `build_pydantic_structure()`
     is it DECLARED?     is it in `nodes`/`joins`/`decisions`/`edges` as DATA — which is the only
-                        form `check()`, `diagram()`, `diff_diagram()` and `varies()` can read
+                        form `coherence_check()`, `diagram()`, `diff_diagram()` and `varies()` can read
 
 ⚠️ The second is the whole product. An escape-hatch topology runs perfectly and is invisible to
-every check this library exists to provide — `check()` says so out loud (`NOT CHECKED — ...
+every check this library exists to provide — `coherence_check()` says so out loud (`NOT CHECKED — ...
 overrides build_pydantic_structure()`), and the middle section measures exactly that.
 
 ⛔ THE TABLE IS `workflow_workbench/parity.py`, AND IT IS CHECKED AGAINST THE REAL API. It was
@@ -224,7 +224,7 @@ async def dbl(ctx) -> int:
 
 
 only = StrategySpec("only", {double: dbl})
-print(f"check() -> {Declarative().check(only) or 'clean, reachability VERIFIED'}")
+print(f"coherence_check() -> {Declarative().coherence_check(only) or 'clean, reachability VERIFIED'}")
 print(f"hook to override the wiring? "
       f"{hasattr(GraphSpec, 'build_pydantic_structure')}")
 print("  ⛔ There was one. It was the ONLY way a built graph could differ from its declaration,")

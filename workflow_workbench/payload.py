@@ -42,6 +42,11 @@ class Node(BaseModel):
     kind: str = "step"
     inputs: list[Variable] = Field(default_factory=list)
     outputs: list[Variable] = Field(default_factory=list)
+    problem: str = ""
+    """`StepSpec.problem` — what makes this role hard, for whoever implements it.
+
+    ⚠️ `""` means nobody wrote one, not that the stage is trivial. The viewer must not render an
+    absent brief as "no notes"."""
 
 
 class Edge(BaseModel):
@@ -73,6 +78,13 @@ class Binding(BaseModel):
     impl: str | None = None
     skipped: bool = False
     unbound: bool = False
+    subgraph: bool = False
+    """This arm fills the role with a whole child design, not a function — so the viewer can
+    offer a drill-down rather than a block of source.
+
+    ⚠️ An explicit field, NOT inferred from `impl` containing `::`. A viewer that string-matches
+    the label is one rename away from silently losing every drill-down, and nothing would say
+    so."""
     file: str = ""
     line: int = 0
     code: str = ""
@@ -85,6 +97,11 @@ class Binding(BaseModel):
         if self.impl is None and not self.unbound:
             raise ValueError("a binding with no `impl` must set unbound=True, or it reads as a "
                              "stage nobody has an opinion about")
+        if self.subgraph and (self.unbound or self.skipped):
+            raise ValueError("a binding cannot be a subgraph AND unbound/skipped — `subgraph` "
+                             "claims a whole child design fills this role, which is the opposite "
+                             "of nobody wiring it or this arm declining to run it. The viewer "
+                             "would draw a composed badge on a stage with nothing behind it")
         return self
 
 

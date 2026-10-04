@@ -8,6 +8,11 @@ export type StageData = {
   /** [layer name, binding] for the two selected layers. One entry when they agree. */
   shown: Array<{ layer: string; binding: Binding }>;
   varies: boolean;
+  /** Any shown arm fills this role with a whole child design rather than a function.
+   *  ⚠️ A property of the BINDING, not the node — the same role is a function in one arm and a
+   *  child design in another, which is the most interesting cell on the canvas. Drawn as a
+   *  separate channel from `varies` because the two are independent. */
+  composed: boolean;
   /** Seconds, from the A layer. undefined = nobody measured, which must not render as 0. */
   latency?: number;
 };
@@ -25,13 +30,19 @@ function implText(b: Binding) {
 }
 
 export function StageView({ data, selected }: NodeProps<RFNode<StageData, "stage">>) {
-  const cls = ["ws-node", data.varies ? "ws-varies" : "ws-shared", selected ? "ws-sel" : ""]
+  const cls = ["ws-node", data.varies ? "ws-varies" : "ws-shared",
+               data.composed ? "ws-composed" : "", selected ? "ws-sel" : ""]
     .filter(Boolean)
     .join(" ");
   return (
     <div className={cls}>
       <Handle type="target" position={Position.Top} />
-      <div className="ws-name">{data.id}</div>
+      <div className="ws-name">
+        {data.id}
+        {/* The drill-down affordance. A composed stage hides a whole design; saying so on the
+            canvas is what stops it reading as one more ordinary box. */}
+        {data.composed && <span className="ws-sub-badge" title="a whole child design">⤵ subgraph</span>}
+      </div>
       {data.shown.map(({ layer, binding }, i) => (
         <div key={layer} className={`ws-line ${data.shown.length > 1 ? `ws-l${i}` : ""}`}>
           {data.shown.length > 1 && <span className="ws-layer">{layer}</span>}

@@ -18,6 +18,8 @@ export interface Node {
   kind?: string;
   inputs?: Variable[];
   outputs?: Variable[];
+  /** What makes this role hard. "" means nobody wrote one, NOT that it is trivial. */
+  problem?: string;
 }
 
 export interface Edge {
@@ -42,6 +44,10 @@ export interface Binding {
   impl: string | null;
   skipped?: boolean;
   unbound?: boolean;
+  /** This arm fills the role with a whole child design, not a function.
+   *  Explicit, NOT inferred from `impl` containing "::" — a viewer that string-matches the
+   *  label is one rename away from silently losing every drill-down. */
+  subgraph?: boolean;
   file?: string;
   line?: number;
   code?: string;

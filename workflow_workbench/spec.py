@@ -46,8 +46,11 @@ class SpecError(Exception):
 
 
 class _Start:
-    """The graph's entry. A class, not a bare `object()`, so `mypy` can narrow a
-    `NodeSpec | _Start | _End` union — a bare sentinel makes every `edge.source` lookup unprovable."""
+    """The graph's entry.
+
+    ⚠️ First line stands alone, because `reference.py` lifts it into the README's vocabulary
+    table. A class, not a bare `object()`, so `mypy` can narrow a `NodeSpec | _Start | _End`
+    union — a bare sentinel makes every `edge.source` lookup unprovable."""
 
     __slots__ = ()
 
@@ -56,7 +59,9 @@ class _Start:
 
 
 class _End:
-    """The graph's exit. See `_Start`."""
+    """The graph's exit.
+
+    A class for the same reason `_Start` is."""
 
     __slots__ = ()
 
@@ -145,6 +150,27 @@ class StepSpec:
     name: str
     inputs: tuple[VariableSpec, ...] = ()
     outputs: tuple[VariableSpec, ...] = ()
+    problem: str = field(default="", kw_only=True)
+    """What makes this role HARD — the colocated brief for whoever implements it.
+
+    ⛔ The PROBLEM, never the solution. The design owns what must be dealt with; a strategy owns
+    how. "Rank the survivors; two reasonable rankings of one set can disagree completely" belongs
+    here. "Sort by score descending" does not — that is one arm's answer, and writing it here
+    quietly makes every other arm wrong by definition.
+
+    ⚠️ Called `problem` and not `description` on purpose. A field called `description` invites
+    "normalizes the name", which restates `name` and tells an implementer nothing. A field called
+    `problem` cannot be filled that way without the emptiness showing.
+
+    ⚠️ Empty is the honest default and means nothing is claimed. It does NOT mean the stage is
+    easy — an absent brief and a stage with no judgement in it must not read the same, and
+    nothing here can tell them apart.
+
+    ⚠️ **Keyword-only, and that is not cosmetic.** This field was added after `streams`, so a
+    POSITIONAL fourth argument had meant `streams` for a release. `StepSpec("x", (), (), True)`
+    would now assign `True` to `problem` and leave streaming off — a type error nowhere, a
+    silently non-streaming node everywhere. `kw_only` makes the old call keep its old meaning.
+    """
     streams: bool = False
     """This role is filled by an async GENERATOR, built with `g.stream` rather than `g.step`.
 

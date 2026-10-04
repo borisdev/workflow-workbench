@@ -47,6 +47,22 @@ def impl_name(impl: Any) -> str:
     return getattr(impl, "__qualname__", None) or getattr(impl, "__name__", None) or repr(impl)
 
 
+def _box(label: str, *, composed: bool) -> str:
+    """The node's shape. `[[…]]` is mermaid's subroutine shape, and it is the right one for a
+    node whose implementation is itself a whole design.
+
+    ⚠️ SHAPE, not colour, and the split is the existing convention in this file: a shape says
+    what a node IS (join, decision, composed), a `classDef` says what is AT STAKE between two
+    arms (varies, shared). The two are independent — a node can be composed in both arms and
+    not vary, or vary between a function and a child graph. One channel could not say both.
+
+    ⚠️ Composed-ness is a property of the BINDING, never of the node: the same role is a
+    function in one arm and a child design in another, and `varies()` reports exactly that. So
+    this is only ever derivable when a strategy is in hand.
+    """
+    return f'[["{label}"]]' if composed else f'["{label}"]'
+
+
 def _arrow(e: EdgeSpec) -> str:
     """The edge's label — and for the two kinds that change the value, BOTH ends.
 
@@ -108,10 +124,11 @@ def diagram(nodes: tuple[NodeSpec, ...], edges: tuple[EdgeSpec, ...], *,
             reducer = getattr(n.reducer, "__name__", str(n.reducer))
             out.append(f"  {_node_id(n)}[/\"{n.name}<br/><i>join: {reducer}</i>\"/]")
             continue
-        label = n.name
+        label, composed = n.name, False
         if strategy is not None and n in strategy.bindings:
             label = f"{n.name}<br/><i>{impl_name(strategy[n])}</i>"
-        out.append(f"  {_node_id(n)}[\"{label}\"]")
+            composed = isinstance(strategy[n], SubgraphBinding)
+        out.append(f"  {_node_id(n)}{_box(label, composed=composed)}")
     out.append("  END([END])")
     for e in edges:
         out.append(f"  {_node_id(e.source)} {_arrow(e)} {_node_id(e.target)}")
@@ -143,13 +160,20 @@ def diff_diagram(nodes: tuple[NodeSpec, ...], edges: tuple[EdgeSpec, ...],
             reducer = getattr(n.reducer, "__name__", str(n.reducer))
             out.append(f"  {_node_id(n)}[/\"{n.name}<br/><i>join: {reducer}</i>\"/]:::shared")
             continue
+        # ⚠️ Composed if EITHER arm binds a child design. A role that is a function in one arm
+        # and a subgraph in the other is the most interesting cell on the canvas — "is
+        # decomposing this stage actually better" — so it must not lose the shape by being
+        # judged on arm `a` alone.
+        composed = any(isinstance(st[n], SubgraphBinding)
+                       for st in (a, b) if n in st.bindings)
         if n in varies:
-            out.append(f"  {_node_id(n)}[\"{n.name}<br/>{a.name}: <i>{impl_name(a[n])}</i>"
-                       f"<br/>{b.name}: <i>{impl_name(b[n])}</i>\"]:::varies")
+            label = (f"{n.name}<br/>{a.name}: <i>{impl_name(a[n])}</i>"
+                     f"<br/>{b.name}: <i>{impl_name(b[n])}</i>")
+            out.append(f"  {_node_id(n)}{_box(label, composed=composed)}:::varies")
         else:
             shared = impl_name(a[n]) if n in a.bindings else ""
             sub = f"<br/><i>{shared}</i>" if shared else ""
-            out.append(f"  {_node_id(n)}[\"{n.name}{sub}\"]:::shared")
+            out.append(f"  {_node_id(n)}{_box(n.name + sub, composed=composed)}:::shared")
     out.append("  END([END])")
     for e in edges:
         out.append(f"  {_node_id(e.source)} {_arrow(e)} {_node_id(e.target)}")

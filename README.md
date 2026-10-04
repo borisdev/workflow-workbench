@@ -1,14 +1,81 @@
 # workflow-workbench
 
-Workflow Workbench is a high-level wrapper around Pydantic Graph Builder for developing workflows
-with an AI coding agent.
+**Let an AI coding agent build a workflow unsupervised and it produces code that works and is
+[incoherent](docs/glossary.md#coherence).** Not broken — that you would notice. Incoherent: a fan-out whose results are
+silently dropped, two wires crossed between values of the same type, a stage nobody implemented.
+It runs, it returns something of the right shape, and nothing downstream can tell.
 
-Specify the workflow and its data contracts, inspect its diagram, then have the agent implement
-the steps. Bind alternative implementations as strategies and compare them through simple
-evaluation battles.
+Workflow Workbench is a [declaration layer](docs/glossary.md#declaration-layer) over Pydantic Graph Builder. You write the workflow's
+shape and its data contracts as **data**, before any step exists — which is what makes that class
+of defect findable:
 
-The specification keeps the workflow understandable and gives the agent explicit constraints.
+```python
+spec.coherence_check()      # 12 well-formedness rules, 7 of them with nothing implemented
+spec.diagram()              # a picture of the same declaration
+spec.render(strategy)       # refuses outright if anything blocks
+```
+
+So the agent gets an acceptance test it cannot talk its way past, and you get a drawing of the
+design before you read a line of its code.
+
+**What you do:** specify the workflow and its data contracts, inspect its diagram, then have the
+agent implement the steps. Bind alternative implementations as strategies and compare them
+through simple evaluation battles.
+
+The declaration is also the part you can hold in your head, and it stays that way: **its size is
+set by the shape of the workflow, not by the complexity of the steps.** A step body can grow to
+500 lines; `StepSpec("price", inputs=(item,), outputs=(cost,))` stays one. Across the examples in
+this repo the declaration runs 11 to 43 lines, whatever is bound into it.
+
+Four problems, and the same declaration answers all four:
+
+| | |
+|---|---|
+| **An agent's output works and is incoherent.** Each piece is locally fine; the whole does not add up. | `coherence_check()` — 12 [well-formedness rules](docs/glossary.md#well-formedness-rule), 7 needing nothing implemented |
+| **A reasoning strategy cannot be asserted correct — only compared.** There is no right answer to diff against, so "better" is an empirical question. | [`eval_battle()`](docs/glossary.md#battle) — same cases, same evaluators, plus a replicate arm as the [noise floor](docs/glossary.md#noise-floor) |
+| **Complexity grows unless pieces are reused.** Two arms that differ in one stage should say so, not be two files. | the [data language](docs/glossary.md#deep-embedding): declare a role once, bind it many ways; `SubgraphBinding` reuses a whole child design as one node |
+| **You cannot see what you built.** | `diagram()` and `diff_diagram()`, from the declaration alone |
+
+On that last one, honestly: Pydantic Graph **can** emit mermaid — `build_mermaid_graph` in
+`graph_builder.py`. Two differences, not a long list. It takes a BUILT graph's internals, so every
+implementation must exist first; ours reads the declaration, so the picture arrives before the
+code. And ours can draw **two strategies at once**, greying what they share and highlighting what
+differs, which is a question about a comparison rather than about a graph.
+
 Pydantic Graph executes the workflow; Pydantic Evals evaluates its results.
+
+### The thesis, in one line
+
+**Making AI-agent development with an SWE agent interpretable.**
+
+Longer: an opinionated declaration layer for work that is *subjective and hard to evaluate* —
+mixing and matching algorithms so that quasi-language reasoning can be done safely, comparably,
+debuggably, auditably. It makes two reasoning strategies **always** comparable — enforced, not
+hoped for, since a battle takes one design and bindings are matched by identity — and makes the
+difference attributable to a **named stage**, then draws it.
+
+The division of labour that falls out of it is the part worth keeping:
+
+| owns | | |
+|---|---|---|
+| **you** | the declaration | ~15 lines, readable in one sitting |
+| **the agent** | the step bodies | however long they need to be |
+| **`coherence_check()`** | the contract between them | an acceptance test it cannot talk its way past |
+
+An agent can rewrite every step body and **cannot quietly change the shape**, because changing
+the shape means editing the lines you read.
+
+### ⛔ When not to use this
+
+If your stages are deterministic and you would never swap one, you do not need this. Use
+Pydantic Graph directly.
+
+This earns its keep when a stage is a **judgement call** — when two competent people would
+implement it differently, and you cannot assert which is right, only measure which does better.
+A stage worth declaring is a stage worth arguing about.
+
+Terms used precisely here — *coherence*, *well-formedness*, *stated gap*, *battle* — are defined
+in the [glossary](docs/glossary.md), with where each word comes from and what it does **not** mean.
 
 Built on [Pydantic Graph](https://ai.pydantic.dev/graph/) and
 [Pydantic Evals](https://ai.pydantic.dev/evals/). Independent; not affiliated with Pydantic.
@@ -56,6 +123,13 @@ A **battle** runs both strategies over the same cases with the same evaluators �
 matching against the expected greeting. `0.50` is two of four: a result on this four-case
 demonstration dataset and nothing beyond it.
 
+⚠️ **And you would never need this library for this.** Nothing in the greeting example is
+contestable — `trim` versus `trim_and_collapse` is a question with a right answer you could look
+up. It is here because the whole mechanism fits in sixty seconds at this size, not because it
+earns its keep. [`examples/contestable.py`](examples/contestable.py) is the shape that does:
+four stages that are each a judgement call, two strategies differing in one of them, and — since
+a design is data — a diagram, a coherence check and a diff with **nothing implemented**.
+
 `eval_battle` also scores one strategy against itself; that replicate is the noise floor a real
 delta has to clear. It is `0.00` here because both implementations are deterministic — a `0.00`
 floor on a model-backed arm usually means a cache answered the second run.
@@ -77,7 +151,7 @@ uv run python3 -m examples.greeting
 Everything it produces goes to the terminal; no files are written. Excerpt:
 
 ```
-1. check() with nothing implemented: clean
+1. coherence_check() with nothing implemented: clean
 ...
 3. what varies between the two strategies: {'normalize': ('trim', 'trim_and_collapse')}
 ...
@@ -98,7 +172,7 @@ viewer is available as a separate process — `uv run python3 -m workflow_workbe
 | | step | what you can inspect |
 |---|---|---|
 | 1 | specify the workflow | the nodes, named values and edges, as data |
-| 2 | check and draw it | `check()` findings and `diagram()` mermaid, with nothing implemented |
+| 2 | check and draw it | `coherence_check()` findings and `diagram()` mermaid, with nothing implemented |
 | 3 | implement the steps | ordinary Pydantic Graph step bodies |
 | 4 | bind a named strategy | `diagram(strategy)` — the design with each role's implementation named |
 | 5 | check the strategy | missing bindings, wrong return types, and `render()` refusing outright |
@@ -107,6 +181,47 @@ viewer is available as a separate process — `uv run python3 -m workflow_workbe
 Stages 2 and 5 are what a specification buys, and neither needs a second strategy: one
 implementation per step still gets a drawing before it is written and a refusal when one is
 missed.
+
+## What `coherence_check()` enforces
+
+<!-- rules:start -->
+**12 rules.** `coherence_check()` returns one finding per violation and an empty list for a clean design; `render()` refuses on any finding that blocks.
+
+**7 need no implementations at all** — runnable the moment `nodes` and `edges` are written.
+
+| check | rule |
+|---|---|
+| `check_names` | Node names must be unique — `render()` uses them as graph node ids. |
+| `check_reachable` | Every node reachable from START, and every node able to reach END. |
+| `check_variables` | Per edge: the variable it carries must be an output of its source and an input of its target. |
+| `check_step_arity` | A step body receives exactly ONE value, so a node cannot consume two inputs at once. |
+| `check_decisions` | `when` appears exactly on the edges leaving a decision, and nowhere else. |
+| `check_transform_edges` | A transform edge is fixed (`apply=`) or a variation point (bound) — exactly one. |
+| `check_fan_out_rejoins` | Everything a fan-out produces must reach a join before it reaches END. |
+
+**5 more once a strategy exists**, checking the implementations against the roles they fill.
+
+| check | rule |
+|---|---|
+| `check_bindings` | The strategy binds exactly the declared VARIATION POINTS — no missing, no extra. |
+| `check_implementations` | Each bound CALLABLE is callable and takes exactly one positional argument (`ctx`). |
+| `check_subgraphs` | Every child design used as a node implementation fits the node it is bound to. |
+| `check_variable_types` | Each implementation returns the type its role is declared to produce. |
+| `check_recursion` | A design does not implement one of its own nodes with itself. |
+<!-- rules:end -->
+
+Every one of these exists because it caught something that otherwise **ran and returned a
+plausible answer**. Each check's docstring in [`checks.py`](workflow_workbench/checks.py) carries
+the measured case that produced it.
+
+**These are structural checks, not a proof of correctness.** A step that returns its input
+untouched satisfies every rule above and still does nothing — that is the boundary between what a
+specification checks and what an evaluation measures, which is why `eval_battle` exists.
+
+A finding is a `CoherenceFinding`: a `str` subclass, so it reads as the sentence it is, carrying
+`check`, `about` and `blocking` so an agent can branch on structure rather than parse English. A
+`NOT CHECKED — …` finding is a [**stated gap**](docs/glossary.md#stated-gap), not a pass, and does not block `render()`.
+
 
 ## The same example, in five stages
 
@@ -134,11 +249,58 @@ checker can catch `compose` being wired to the wrong one when there is only one 
 A name can. Edge fields are keyword-only and `carries` is required — four interchangeable-looking
 slots are one transposition away from a graph that is wrong and runs.
 
+#### The data language
+
+<!-- language:start -->
+A design is **data** — tuples of these, in a class body. Nothing executes, which is what lets `coherence_check()` and `diagram()` read it before a single step is written.
+
+**Values** — What flows. Named, so a mis-wiring is visible when the types are identical.
+
+| | |
+|---|---|
+| `VariableSpec` | A named, typed value that may flow along an edge. |
+
+**Boxes** — Every box the design declares. Only a step takes an implementation.
+
+| | |
+|---|---|
+| `StepSpec` | A semantic role with a typed contract. Deliberately implementation-free. |
+| `JoinSpec` | The one thing that can combine several arrivals into one value. |
+| `DecisionSpec` | A router. Sends the value down one branch, chosen by its TYPE. |
+| `NodeSpec` | `StepSpec` \| `JoinSpec` \| `DecisionSpec` |
+
+**Wires** — How values move. The kind of edge is the kind of movement.
+
+| | |
+|---|---|
+| `EdgeSpec` | One wire: `source -> target`, carrying `carries`. |
+| `MapEdgeSpec` | Fan out: `carries` is a collection, and the target runs ONCE PER `delivers`. |
+| `TransformEdgeSpec` | A cheap SYNCHRONOUS reshape that happens ON THE WIRE, creating no node. |
+
+**Endpoints** — The graph's own boundary, declared like anything else.
+
+| | |
+|---|---|
+| `START` | The graph's entry. |
+| `END` | The graph's exit. |
+
+**The design, and what fills it** — One design, many competing sets of implementations.
+
+| | |
+|---|---|
+| `GraphSpec` | Subclass it, declare `nodes` and `edges`. That is the whole interface. |
+| `StrategySpec` | A complete Bindable -> implementation mapping. One competitor. |
+| `SubgraphBinding` | A whole child design — `GraphSpec` + `StrategySpec` — used as ONE node's implementation. |
+| `Bindable` | `StepSpec` \| `TransformEdgeSpec` |
+
+The two unions are annotations, not classes you instantiate — calling either one raises `TypeError`. They exist so a signature can say *any declared box*, or *anything a strategy must bind*, and have it type-check.
+<!-- language:end -->
+
 ### 2. Check it and draw it, before implementing anything
 
 ```python
 spec = Greeting()
-spec.check()      # -> [] — no strategy, no implementations, no engine
+spec.coherence_check()      # -> [] — no strategy, no implementations, no engine
 spec.diagram()    # -> mermaid for the specification
 ```
 
@@ -170,12 +332,30 @@ says so; `render()` refuses rather than building a graph with a hole in it:
 
 ```python
 unfinished = StrategySpec("unfinished", {normalize: trim_and_collapse})
-spec.check(unfinished)
+spec.coherence_check(unfinished)
 # ["strategy 'unfinished' does not bind node 'compose'. Every one is bound explicitly,
 #   including unchanged ones — a partial strategy makes 'what varies between these arms'
 #   unanswerable without reading both files."]
 spec.render(unfinished)   # raises SpecError with the same finding
 ```
+
+A finding is a sentence, and it is also **structured**. `CoherenceFinding` is a `str` subclass, so
+everything above reads exactly as it looks — and an agent driving this as its acceptance test can
+branch on fields instead of matching on prose:
+
+```python
+f = spec.coherence_check(unfinished)[0]
+f.check       # 'check_bindings'  — which check produced it
+f.about       # 'compose'         — the node; 'source->target' for an edge; '' for the design
+f.blocking    # True              — False only for a `NOT CHECKED — …` stated gap
+
+from workflow_workbench import blocking
+blocking(spec.coherence_check(unfinished))    # what `render()` refuses on, gaps excluded
+```
+
+`blocking` is a bool rather than a severity enum because there are two states and no third has
+turned up. A stated gap and a clean pass must never read the same — that is the one distinction
+`coherence_check()` has always made, and it used to be recoverable only with `startswith("NOT CHECKED")`.
 
 Which is what makes growing a workflow safe: add a node and every existing strategy fails loudly
 rather than skipping a step it never heard of
@@ -228,7 +408,7 @@ specification guarantees; behaviour is what the battle is for.
 
 The specification is the reviewable artifact. Review the diagram and the contracts, and the
 agent's job narrows to step bodies satisfying a declared input and output type for a named role,
-with `check()` as the acceptance test.
+with `coherence_check()` as the acceptance test.
 
 A proposed change to the workflow itself is then a diff to `nodes` and `edges` — one small place,
 reviewed on its own, not a behaviour change buried in a function body.

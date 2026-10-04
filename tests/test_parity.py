@@ -121,7 +121,7 @@ def test_the_probe_reads_parity_rather_than_keeping_its_own_copy() -> None:
 #: spelled out rather than globbed: `docs/migration-*.md` would silently cover a new file nobody
 #: reviewed. `test_the_retirement_exemptions_all_exist` fails if either path is renamed, so the
 #: exemption cannot outlive the document it was written for.
-_NAMES_THE_OLD_API = ("CHANGELOG.md", "docs/migration-0.2.md")
+_NAMES_THE_OLD_API = ("CHANGELOG.md", "docs/migration-0.2.md", "docs/migration-0.3.md")
 
 
 def _prose_docs(*, include_migration: bool = True) -> list[tuple[str, str]]:
@@ -130,7 +130,11 @@ def _prose_docs(*, include_migration: bool = True) -> list[tuple[str, str]]:
     ⚠️ Not just the README. `docs/` holds the ladder, the design notes and the generated parity
     table, and a snippet in any of them is one a reader will paste.
     """
-    paths = sorted(ROOT.glob("*.md")) + sorted(ROOT.glob("docs/*.md"))
+    # ⚠️ `.claude/skills/` is included, and it is the file that matters MOST here: a skill is
+    # prose an AGENT reads and acts on, so a retired API named there is not a confused human —
+    # it is generated code calling a method that no longer exists.
+    paths = (sorted(ROOT.glob("*.md")) + sorted(ROOT.glob("docs/*.md"))
+             + sorted(ROOT.glob(".claude/skills/**/*.md")))
     out = [(str(p.relative_to(ROOT)), p.read_text()) for p in paths]
     if not include_migration:
         out = [(n, t) for n, t in out if n not in _NAMES_THE_OLD_API]
@@ -165,6 +169,11 @@ def test_the_docs_use_the_current_api() -> None:
         "check_built_topology": "gone, with the hook it policed",
         "NodeSpec(": "renamed in 0.2.0 — the class is StepSpec; NodeSpec is now the union "
                      "StepSpec | JoinSpec | DecisionSpec. See docs/migration-0.2.md",
+        # ⚠️ The token 0.3.0 actually retired, and it was missing — so this lint's whole
+        # claim ("a skill cannot name a dead method") held for `NodeSpec(` and not for the
+        # rename that shipped in the same release. The three files that legitimately quote
+        # the old call are already in `_NAMES_THE_OLD_API`.
+        ".check(": "renamed in 0.3.0 — it is `coherence_check(...)`. See docs/migration-0.3.md",
     }
     for name, text in _prose_docs(include_migration=False):
         # ⚠️ Only the lines that TALK ABOUT a retirement are skipped — narrow the exception,

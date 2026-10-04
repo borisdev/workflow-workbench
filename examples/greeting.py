@@ -117,7 +117,7 @@ def dataset():
 def main() -> None:
     spec = Greeting()
 
-    print("1. check() with nothing implemented:", spec.check() or "clean")
+    print("1. coherence_check() with nothing implemented:", spec.coherence_check() or "clean")
     print("\n2. the specification, drawn from the declaration:")
     print(spec.diagram())
 
@@ -127,7 +127,7 @@ def main() -> None:
 
     print("\n4. an incomplete strategy — `compose` left unbound:")
     unfinished = StrategySpec("unfinished", {normalize: trim_and_collapse})
-    for finding in spec.check(unfinished):
+    for finding in spec.coherence_check(unfinished):
         print(f"   check finding: {finding}")
     try:
         spec.render(unfinished)

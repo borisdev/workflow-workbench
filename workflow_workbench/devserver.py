@@ -19,6 +19,7 @@ from __future__ import annotations
 import inspect
 from typing import Any
 
+from workflow_workbench.checks import blocking
 from workflow_workbench.diagram import impl_name
 from workflow_workbench.graph_spec import GraphSpec
 from workflow_workbench.spec import StrategySpec, SubgraphBinding, is_sentinel
@@ -79,6 +80,7 @@ def spec_payload(spec: GraphSpec, strategies: list[StrategySpec]) -> dict[str, A
         {
             "id": n.name,
             "kind": "step",
+            "problem": getattr(n, "problem", ""),
             "inputs": [{"name": v.name, "type": getattr(v.type, "__name__", str(v.type))}
                        for v in n.inputs],
             "outputs": [{"name": v.name, "type": getattr(v.type, "__name__", str(v.type))}
@@ -116,14 +118,15 @@ def spec_payload(spec: GraphSpec, strategies: list[StrategySpec]) -> dict[str, A
                 # An explicit decline, which is a different fact from "nobody wired it".
                 "skipped": name == "skip",
                 "unbound": False,
+                "subgraph": isinstance(impl, SubgraphBinding),
                 **_source_of(impl),
             }
-        findings = spec.check(s)
+        findings = spec.coherence_check(s)
         layers.append({
             "name": s.name,
             "bindings": bindings,
             "findings": findings,
-            "ok": not [f for f in findings if not f.startswith("NOT CHECKED")],
+            "ok": not blocking(findings),
         })
 
     return {
@@ -133,7 +136,7 @@ def spec_payload(spec: GraphSpec, strategies: list[StrategySpec]) -> dict[str, A
         "nodes": nodes,
         "edges": edges,
         "layers": layers,
-        "design_findings": spec.check(),
+        "design_findings": spec.coherence_check(),
         "mermaid": spec.diagram(),
     }
 

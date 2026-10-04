@@ -13,7 +13,7 @@ when there are two implementations of `pick` and something has to hold them to o
 
 What you get already, and cannot get from a built Graph:
 
-    HelloWorld().check()      runs with NO strategy and NO implementations
+    HelloWorld().coherence_check()      runs with NO strategy and NO implementations
     HelloWorld().diagram()    draws the design before anything is written
 
     uv run python3 -m examples.ladder.stage1_bare
@@ -88,7 +88,7 @@ def main() -> None:
 
     # ⚠️ No strategy, no implementations, no engine. This is the thing a built Graph cannot do,
     # because a built Graph cannot exist until every function is written.
-    print(f"check() with nothing implemented: {spec.check() or 'clean'}")
+    print(f"coherence_check() with nothing implemented: {spec.coherence_check() or 'clean'}")
 
     graph = spec.render(formal)
     state = Guest()
